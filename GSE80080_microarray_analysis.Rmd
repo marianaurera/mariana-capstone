@@ -1,0 +1,87 @@
+---
+title: "GSE80080"
+output: html_document
+date: "2023-09-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Analysis of microarray data from GSE80080
+
+```{r}
+library(limma)
+library(knitr)
+library("illuminaio")
+
+bgxfile = dir(path="./", pattern="bgx")
+idatfiles = dir(path="./", pattern=".idat")
+data = read.idat(idatfiles, bgxfile)
+```
+
+```{r}
+pe = propexpr(data)
+kable(pe, "markdown")
+```
+
+
+```{r}
+data.norm = neqc(data) # normalize data
+```
+
+```{r}
+eset = data.norm$E
+distance = dist(t(eset))#,method="maximum")
+clusters = hclust(distance, method="ward.D")
+plot(clusters) 
+```
+
+
+```{r}
+sampledata = data.frame(geo=c("GSM2112539", "GSM2112540", "GSM2112541", "GSM2112542", "GSM2112543", "GSM2112544"),
+						name = c("SKR_1", "RXF_1", "SKR_2", "RXF_2", "SKR_3", "RXF_3"), 
+						condition = c("SKR", "RXF", "SKR", "RXF", "SKR", "RXF")
+						)
+```
+
+
+```{r}
+library(ggplot2)
+
+pca = prcomp(t(eset))
+percentVar <- round(100*pca$sdev^2/sum(pca$sdev^2))
+data = as.data.frame(pca$x)
+data$name = sampledata$name
+data$condition = sampledata$condition
+ggplot(data, aes(PC1, PC2, colour=condition)) + geom_point(size=3) +
+  scale_x_continuous(paste0("PC1: ",percentVar[1],"% variance"), limits=c(-30, 30)) +
+  scale_y_continuous(paste0("PC2: ",percentVar[2],"% variance"), limits=c(-45, 30)) +
+  coord_fixed() + theme_classic() + geom_text(data = data, aes(PC1,PC2, label = name), hjust = 1.2)
+```
+
+
+```{r}
+condition <- factor(sampledata$condition, unique(sampledata$condition))
+design <- model.matrix(~0 + condition)
+colnames(design) <- c("SKR", "RXF")
+```
+
+
+```{r}
+fit <- lmFit(data.norm, design)
+contrast.matrix <- makeContrasts(kc_knc = RXF - SKR, levels=design)
+kc_fits <- contrasts.fit(fit, contrast.matrix)
+kc_ebFit <- eBayes(kc_fits)
+
+results = topTable(kc_ebFit, coef=1, number=nrow(data.norm))
+
+sum(results$adj.P.Val < 0.1)
+```
+
+
+
+
+```{r}
+sessionInfo()
+```
