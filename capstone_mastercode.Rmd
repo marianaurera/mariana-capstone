@@ -1,0 +1,644 @@
+---
+title: "Capstone"
+output: html_notebook
+---
+
+Alignment and Quantifying miRNAs (on Linux, server)
+
+```{r eval=FALSE}
+
+# aligning sequences
+bwa aln -t 10 <reference file .fa> <sequence file .fq.gz> > <output file .sai>
+bwa aln -t 10 /home/marianaurera/capstone/hg38.fa /home/marianaurera/capstone/BGI/RXF393_1/RXF393_1.fq.gz > /home/marianaurera/capstone/aligned/RXF393_1.sai
+
+
+# converting .sai to .sam
+bwa samse <reference file .fa> <input aligned file .sai> <sequence file .fq.gz> > <output file .sam>
+
+# converting sam to bam file
+samtools view -bS -h <.sam file> > <.bam file>
+  
+# sorting bam file
+samtools sort -O bam -o <test_sorted.bam> <input test.bam file>
+  
+# indexing bam file: yields .bam.bai file
+samtools index <test_sorted.bam>
+
+# OLD quantifying miRNAs with featureCounts
+featureCounts -p -B -t miRNA -g ID -F GFF -a <.gff/.gtf reference file> -T 4 -s 2 -o <output .txt file> <input sorted .bam file>
+featureCounts -p -B -t miRNA -g ID -F GFF -a <.gff/.gtf reference file> -T 4 -s 0/1 -o <output .txt file> <input sorted .bam file>
+
+# NEW quantifying miRNAs with featureCounts (files ..._newtry.txt)
+featureCounts -t miRNA -g ID -F GFF -a <.gff/.gtf reference file> -T 4 -s 1 -o <output .txt file> <input sorted .bam file>
+featureCounts -t miRNA -g ID -F GFF -a /home/marianaurera/capstone/hsa.gff3 -T 4 -s 1 -o /home/marianaurera/capstone/aligned/kidney_counts.txt RXF393_1_sorted.bam RXF393_2_sorted.bam SKRC39_1_sorted.bam SKRC39_2_sorted.bam
+
+# Filtering GTF file Homo_sapiens.GRCh38.108.chr.gtf to miRNAs only
+grep -w "miRNA" Homo_sapiens.GRCh38.108.chr.gtf > Homo_sapiens.GRCh38.108.miRNA.gtf 
+featureCounts -t exon -g gene_id -a /home/marianaurera/capstone/Homo_sapiens.GRCh38.108.miRNA.gtf -T 4 -s 1 -o /home/marianaurera/capstone/aligned/kidney_counts_newtry_classgtf.txt RXF393_1_sorted.bam RXF393_2_sorted.bam SKRC39_1_sorted.bam SKRC39_2_sorted.bam # quantifying featureCounts
+
+```
+
+
+## General QC
+
+```{r}
+
+
+## loading in libraries
+library(biomaRt)
+library(GenomicFeatures) #For genome annotations, GTF files
+
+experimental.metadata = data.frame(samplename = c("RXF393_1",
+                                                  "RXF393_2",
+                                                  "SKRC39_1",
+                                                  "SKRC39_2",
+                                                  "NL20_S1",
+                                                  "NL20_S2",
+                                                  "LL2_S3",
+                                                  "LL2_S4"),
+                                   condition = c("KC",
+                                                 "KC",
+                                                 "KNC",
+                                                 "KNC",
+                                                 "LNC",
+                                                 "LNC",
+                                                 "LC",
+                                                 "LC"))
+experimental.metadata$condition = factor(experimental.metadata$condition,
+                             levels=c("KC", "KNC", "LNC", "LC"))
+experimental.md.kidney = experimental.metadata[c(1:4),]
+experimental.md.kidney$condition = factor(experimental.md.kidney$condition,
+                             levels=c("KC", "KNC"))
+# KC: Kidney Cachectic; KNC: Kidney Non-cachectic; LNC: Lung Non-cachectic; LC: Lung cachectic
+
+
+## loading in data
+kidney= read.delim("aligned/kidney_counts_newtry.txt", sep="\t", comment.char="#", row.names=1)
+kidney_read_counts = kidney[, c(6:9)]
+colnames(kidney_read_counts) <- c("RXF393_1", "RXF393_2", "SKRC39_1", "SKRC39_2")
+
+# Compressing redundant miRNAs
+kidney_merge_counts = kidney_read_counts
+kidney_merge_counts$ID = rownames(kidney_read_counts)
+kidney_merge_counts = kidney_merge_counts[,c(5,1:4)]
+
+for (i in seq(nrow(kidney_merge_counts))) {
+  kidney_merge_counts$ID[i] <- substring(kidney_merge_counts$ID[i], 1, 12)
+}
+
+rownames(kidney_merge_counts) = seq(nrow(kidney_merge_counts))
+
+
+kidney_merge_counts_KC1 = aggregate(kidney_merge_counts$RXF393_1, 
+                                 by=list(kidney_merge_counts$ID), FUN=sum)
+kidney_merge_counts_KC2 = aggregate(kidney_merge_counts$RXF393_2, 
+                                 by=list(kidney_merge_counts$ID), FUN=sum)
+kidney_merge_counts_KNC1 = aggregate(kidney_merge_counts$SKRC39_1, 
+                                 by=list(kidney_merge_counts$ID), FUN=sum)
+kidney_merge_counts_KNC2 = aggregate(kidney_merge_counts$SKRC39_2, 
+                                 by=list(kidney_merge_counts$ID), FUN=sum)
+
+new_kidney_merge_counts = data.frame(ID = kidney_merge_counts_KC1$Group.1,
+                                     RXF393_1 = kidney_merge_counts_KC1$x,
+                                     RXF393_2 = kidney_merge_counts_KC2$x,
+                                     SKRC39_1 = kidney_merge_counts_KNC1$x,
+                                     SKRC39_2 = kidney_merge_counts_KNC2$x)
+rownames(new_kidney_merge_counts) = new_kidney_merge_counts$ID
+new_kidney_merge_counts = new_kidney_merge_counts[, -1]
+kidney_read_counts = new_kidney_merge_counts
+
+
+
+## removing the genes not detected
+dim(kidney_read_counts)
+kidney_read_counts = kidney_read_counts[apply(kidney_read_counts, 1, function(row) any(row > 0 )),]
+dim(kidney_read_counts) # filtered reads
+summary(colSums(kidney_read_counts)) # summary of reads per sample
+
+
+## Frequency distribution: This should be uniform, but it isn't
+colSums(kidney_read_counts) # total reads per sample
+barplot(colSums(kidney_read_counts), ylab="Number aligned reads", las=2, cex.names=0.8)
+summary(colSums(kidney_read_counts))
+# INTERPRETATION: Distribution is not uniform. This means that the KNC condition
+# might be under-represented and that there are differences in library sizes.
+# Moreover, genes with lower expression might be missed in the KNC
+# condition because they have a lesser read depth compared to KC condition. 
+summary(kidney_read_counts)
+
+# miRNAs detected 
+sample_detect <- c(sum(sapply(kidney_read_counts[,c(1)], function(row) all(row > 0 ))), #RXF 1 -> 506,
+                    sum(sapply(kidney_read_counts[,c(2)], function(row) all(row > 0 ))), #RXF 2 -> 526
+                    sum(sapply(kidney_read_counts[,c(3)], function(row) all(row > 0 ))), #SKR 1 -> 284
+                    sum(sapply(kidney_read_counts[,c(4)], function(row) all(row > 0 ))) #SKR 2 -> 303
+                    )
+barplot(sample_detect, 
+        names = experimental.md.kidney$samplename,
+        main = "Number of miRNAs detected in each sample",
+        xlab = "Sample Name",
+        ylab = "Number of miRNAs",
+        ylim = c(0, 600))
+condition_detect <- c(sum(apply(kidney_read_counts[,c(1,2)], 1, function(row) all(row > 0 ))), #RXF
+                      sum(apply(kidney_read_counts[,c(3,4)], 1, function(row) all(row > 0 ))) #SKR
+                      )
+barplot(condition_detect, 
+        names = c("Cachectic", "Non-Cachectic"),
+        main = "Number of miRNAs detected in all samples per condition (Kidney Model)",
+        xlab = "Condition",
+        ylab = "Number of miRNAs",
+        ylim = c(0, 450))
+
+condition_detect_any <- c(sum(apply(kidney_read_counts[,c(1,2)], 1, function(row) any(row > 0 ))), #RXF --> 624
+                      sum(apply(kidney_read_counts[,c(3,4)], 1, function(row) any(row > 0 ))) #SKR
+                      )
+barplot(condition_detect_any, 
+        names = c("Cachectic", "Non-Cachectic"),
+        main = "Number of miRNAs detected in at least 1 sample per condition (Kidney Model)",
+        xlab = "Condition",
+        ylab = "Number of miRNAs",
+        ylim = c(0, 700))
+
+
+
+
+## PCA
+library(DESeq2)
+
+dds = DESeqDataSetFromMatrix(kidney_read_counts, experimental.md.kidney, ~ condition)
+dds <- estimateSizeFactors(dds)   #identifying housekeeping genes: normalizing for library composition, seq depth
+dds <- estimateDispersions(dds)   #estimative variances per gene
+
+# # finding threshold
+# # counts_normalized = counts(dds, normalized=TRUE)
+# kidney_counts_aft_test = c()
+# thresh = seq(1, 50, 5)
+# for (i in thresh) {
+#   dds_test = dds
+#   test_filter = apply(counts(dds_test, normalized=TRUE), 1, function(x){ mean(x) >= i }) # removing genes with based on threshold
+#   kidney_counts_aft_test = c(kidney_counts_aft_test, sum(test_filter))
+# }
+# plot(thresh, kidney_counts_aft_test,
+#      xlab = "Count Cutoff (# of reads)",
+#      ylab = "# of miRNAs detected",
+#      main = "Identifying appropriate cutoff for low-reads")
+
+
+rld <- rlog(dds) #log data
+ntop = 500
+rv <- rowVars(assay(rld))
+select <- order(rv, decreasing = TRUE)[1:ntop]
+pca = prcomp(t(assay(rld)[select,])) # full-on pca: gets % variation per PC
+percentVar <- pca$sdev^2/sum(pca$sdev^2)
+barplot(percentVar, names=1:length(percentVar), xlab="PC", ylab="% variation",  las=2, cex.names=0.8, ylim=c(0,0.9)) #% of variation accounted per PC
+
+#PC1: INTERPRETATION: This axis on the variation accounts for the condition difference.
+plotPCA(rld, intgroup = c( "condition")) #color by condition, put in a plot
+data = plotPCA(rld, intgroup = c( "condition"), returnData=TRUE) 
+data 
+
+#PC2: INTERPRETATION: difference in reads between samples within conditions.
+plotPCA(rld, intgroup = c("samplename"))
+plot(pca$x[,"PC2"], pca$x[,"PC3"], xlab="PC2", ylab="PC3", col= factor(levels(factor(experimental.md.kidney$samplename))), pch=19)
+legend("topleft",
+       legend = levels(factor(experimental.md.kidney$samplename)),
+       col = factor(levels(factor(experimental.md.kidney$samplename))),
+       pch = 19)
+
+
+## plotting replicates against each other in MAplot (QC of replicates)
+# Checking consistency of replicates within conditions. 
+dds_normalized <- as.data.frame(counts(dds, normalized = TRUE)) #663 distinct miRNAs detected in at least one sample
+
+MAplots_replicates <- function(data1, data2, replicate_name1, replicate_name2) {
+      if (length(data1) != length(data2)) {
+        return(NA)
+      } else {
+      r <- data1
+      g <- data2
+      m <- log2(r/g) # formula, y-axis
+      a <- 0.5*(log2(r*g))# formula, x-axis
+      plot(a,m, col = "navyblue", pch = 20,
+           main = paste(replicate_name1, "vs.", replicate_name2))
+      abline(h = 0)
+      }
+}
+
+par(mfrow=c(2,1))
+MAplots_replicates(dds_normalized$RXF393_1, dds_normalized$RXF393_2, "RXF393_1", "RXF393_2")
+MAplots_replicates(dds_normalized$SKRC39_1, dds_normalized$SKRC39_2, "SKRC39_1", "SKRC39_2")
+par(mfrow=c(1,1))
+# INTERPRETATION:
+# RXF393: relatively symmetrical and align with the center indicating consistency
+# across samples within the condition.
+# SKRC39: Compared to RXF393, SKRC39 samples are not as consistent because the
+# the points are not as aligned to the center line. Moreover, the spread of this 
+# condition is much wider than RXF393. 
+
+sum(apply(dds_normalized, 1, function(x){ mean(x) >= 1 }))
+
+# how many miRNAs detected per sample vs threshold
+mirna_detected_samples <- data.frame(samplenames = experimental.md.kidney$samplename,
+                                     detected_mirnas = rep(NA,
+                                                           length(experimental.md.kidney$samplename)))
+for (i in colnames(dds_normalized)){
+  mirna_detected_samples$detected_mirnas[mirna_detected_samples$samplenames == i] = sum(apply(dds_normalized[i], 1, function(x){ mean(x) >= 1 }))
+}
+barplot(mirna_detected_samples$detected_mirnas,
+        names.arg = mirna_detected_samples$samplenames,
+        main = "Number of miRNAs detected in each sample",
+        ylab = "Number of miRNAs detected",
+        xlab = "Samples",
+        ylim = c(0, 500))
+
+
+
+```
+
+
+#### Differential Expression
+
+```{r}
+library(scales)
+library(EnhancedVolcano)
+
+##Note: 
+#Volcano graphs and MA plots were chosen to exhibit the relationship between 
+#the fold change of the gene expression and its significant and to give an idea 
+#of which genes are changing (lowly vs highly expressed) and how, respectively.
+
+
+## Overall
+dds = nbinomLRT(dds, full= ~1 + condition, reduced = ~1) #Likelihood ratio test
+results.lrt <- results(dds)
+results.lrt #padj: p-value corrected for multiple testing --> False Discovery Rate (FDR)
+sum(results.lrt$padj < 0.05, na.rm = T) #30 significantly different in expression between conditions
+# FDR cut-off is 5% (alpha = 0.05). Differential expression calculation is limited in that 
+# about 5% of significantly differently expressed genes are false. 
+
+## Comparing Cachectic vs. Non-cachectic (in Kidney model)
+KC_vs_KNC = results(dds, contrast=c("condition", "KC", "KNC"), independentFiltering = TRUE, alpha=0.05, test="Wald")
+KC_vs_KNC <- lfcShrink(dds=dds, contrast=c("condition", "KC", "KNC"), type="ashr") #ratio: KC/KNC
+hist(KC_vs_KNC$pvalue, xlab="pvalue", main="KC vs KNC") 
+#This graph hows that the distribution of p-values is bimodal which is likely due two miRNA-seq considering low reads as well. 
+#low read thus needs to be removed.
+
+
+# recalculating everything
+dds = DESeqDataSetFromMatrix(kidney_read_counts, experimental.md.kidney, ~ condition)
+
+dds <- estimateSizeFactors(dds) 
+dds <- estimateDispersions(dds)
+
+## filtering out low reads to fix the bimodal p-value histogram shown above
+filter = apply(counts(dds, normalized=TRUE), 1, function(x){ mean(x) >= 10 })
+# Using 60 as a threshold for low reads would adjust the histogram of p-values in 
+# the Wald test for differential expression analysis (see above). These low-reads
+# act as outlier that create two peaks in what would be a histogram for the alternative
+# hypothesis (if applicable). 
+# source: http://varianceexplained.org/statistics/interpreting-pvalue-histogram/
+dds = dds[filter, ]
+
+dds <- estimateSizeFactors(dds) 
+dds <- estimateDispersions(dds)
+
+dds = nbinomLRT(dds, full= ~1 + condition, reduced = ~ 1 )
+
+results.lrt = results(dds)
+results.lrt
+sum(results.lrt$padj < 0.05, na.rm = T) #135 significantly different in expression between conditions
+
+## Comparing Cachectic vs. Non-cachectic (in Kidney model)
+KC_vs_KNC = results(dds, contrast=c("condition", "KC", "KNC"), independentFiltering = TRUE, alpha=0.05, test="Wald")
+KC_vs_KNC <- lfcShrink(dds=dds, contrast=c("condition", "KC", "KNC"), type="ashr") #ratio: KC/KNC
+hist(KC_vs_KNC$pvalue, xlab="pvalue", main="KC vs KNC") 
+
+
+
+#This volcano plot shows that the significantly different genes have large fold changes. 
+#The wide dispersion suggests a high difference of gene expression 
+#between embryonic stem cells and cortical neurons. 
+plot(KC_vs_KNC$log2FoldChange, 
+     -log10(KC_vs_KNC$padj), pch=19, ylim=c(0,6), 
+     col = alpha("grey", 0.8), xlim=c(-8, 8),
+     main = "KC vs. KNC")
+
+#MA Plot: The width of breadth of points in this plot show that the groups have 
+#highly different gene expression patterns. Moreover, the majority of points are
+#below alpha (0.1) showing that the difference in gene expression patterns of most
+#genes are significant. Furthermore, given that significantly differently expressed genes
+#(in blue) are shown to be concentrated around the middle section of the x-axis, this 
+#shows that genes lowly expressed are then changing to high expression, or vice versa.
+plotMA(KC_vs_KNC, ylim=c(-30,30),  main = "KC vs. KNC")
+
+
+# significantly different genes
+de_mirna = results.lrt[!is.na(results.lrt$padj) & results.lrt$padj<0.05, ]
+de_mirna
+
+sum(de_mirna$log2FoldChange > 0)
+sum(de_mirna$log2FoldChange > log2(1.5))# 34, number of miRNA upregulated in Cachexia
+sum(de_mirna$log2FoldChange > log2(2))# 34, number of miRNA upregulated in Cachexia
+
+
+
+```
+
+
+#### Clustering & Visualization
+
+```{r}
+## loading in libraries
+library(pheatmap)
+library("grid")
+# library("gridExtra")
+library(cluster)
+
+
+## K-means clustering: This wqs chosen because it is easier to interpret with a large
+# dataset (more than 13,000 genes). The clustering is more robust, showing 
+# more clearly the change in expression of genes over the neuronal differentiation
+# process. 
+significant_results = results.lrt[!is.na(results.lrt$padj) & results.lrt$padj<0.05, ]
+rld_signif = assay(rld)[rownames(significant_results),]
+rld_z = t(apply(rld_signif, 1, function(x){ (x - mean(x)) / sd(x)})) # converting to zscore --> to scale
+# Converting the values to z-scores allows us to group the genes by similar pattern of change
+
+#This allows us to get a better understanding of the distribution of patterns of change.   
+thr = 3 # threshold on z-score
+rld_z[rld_z > thr] = thr # anything greater than 3 --> just 3
+rld_z[rld_z < -thr] = -thr # anything less than 3 --> just -3
+
+
+# elbow criterion - choosing K
+set.seed(123)
+k.max <- 20 # number of replicates/samples (N = k)
+wss <- sapply(2:k.max, 
+              function(k){kmeans(rld_z, k, nstart=10,iter.max = 15 )$tot.withinss})
+plot(2:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares",
+     xlim = c(0, 20))
+# Choosing K: K should be around 4 clusters because this is when the variation 
+# accounted for begins to plateau according to the elbow criterion
+
+
+# How well does each gene belong in its cluster: Silhouette
+SIL = sapply(2:20, function(i) { 
+  #print(i)
+  results.coef.kmeans =  kmeans(rld_z, i, nstart=50, iter.max=50)
+    mean(silhouette(results.coef.kmeans$cluster, dist(rld_z))[,3]) }) # average fit of each gene within a cluster
+plot(c(0,SIL), type="b") #elbows at around 6, indicating the 6 may be the most appropriate k
+
+
+# Testing 5 clusters
+k = 3
+results.coef.kmeans =  kmeans(rld_z, k, nstart=10, iter.max=50)
+
+
+x = silhouette(results.coef.kmeans$cluster, dist(rld_z))
+plot(x, col="black", border=NA, main=paste("k = ", k, collapse = "")) # Silhoutte plot
+# This plot shows that most genes fit well into their corresponding clusters, 
+#by the low datapoints on the negative section of the x-axis. 
+# This shows that K = 6 is an appropriate number of clusters for this dataset.
+table(results.coef.kmeans$cluster) # how many genes fit per cluster
+
+
+## heatmap by cluster
+results.coef = rld_z[order(results.coef.kmeans$cluster),] # gets rid of scale, allows us to focus on 
+#only the pattern of expression changes
+indicator = results.coef.kmeans$cluster[order(results.coef.kmeans$cluster)]
+color = c(colorRampPalette(c("mediumblue", "white"))(14), colorRampPalette(c("white", "firebrick2"))(14))
+breaksList = seq(-3, 3, length.out = 29)
+heat.map <- pheatmap(results.coef, cluster_col=FALSE, breaks=breaksList, 
+                     cluster_rows=FALSE, show_rownames=FALSE,color = color,
+                     fontsize_row = 3, legend=TRUE,border_color = NA)
+grid.newpage()
+grid.draw(heat.map$gtable)
+# This graph shows 3 clusters of genes by their pattern of expression across the 
+# conditions/cell-types. 
+
+```
+
+### Target Scan - linking gene targets and miRNAs
+```{r}
+ts = read.delim("Predicted_Targets_Context_Scores.default_predictions.txt")
+ts_humans = ts[ts$Gene.Tax.ID == "9606", c(1,2,3,5,11)]
+library(miRBaseConverter)
+
+de_mirna_df = as.data.frame(de_mirna)
+de_mirna_df[,c(7,8)] = miRNA_AccessionToName(rownames(de_mirna_df))
+colnames(de_mirna_df) = c(colnames(de_mirna_df)[1:6], "accession", "miRNA")
+de_mirna_targets = unique(merge(de_mirna_df, ts_humans, by = "miRNA"))
+de_mirna_up_targets = de_mirna_targets[de_mirna_df$log2FoldChange > 0, ] # just getting upregulated miRNAs (their genes go down)
+de_mirna_down_targets = de_mirna_targets[de_mirna_df$log2FoldChange < 0, ] # just getting downregulated miRNAs (their genes go up)
+
+
+max(table(de_mirna_up_targets$Gene.ID))
+length(unique(de_mirna_up_targets$Gene.ID)) # 4833 gene targets based on symbol, 4854 targets based on geneID
+length(unique(de_mirna_down_targets$Gene.ID)) # XXX gene targets based on symbol, 8062 targets based on geneID
+
+hist(de_mirna_up_targets$weighted.context...score)
+
+context_score_cutoff_up = c()
+for (i in seq(0, -1, -0.1)) {
+  context_score_cutoff_up = c(context_score_cutoff_up, length(unique(de_mirna_up_targets$Gene.ID[de_mirna_up_targets$weighted.context...score < i])))
+}
+
+plot(seq(0, -1, -0.1), context_score_cutoff_up)
+
+
+
+```
+
+
+
+## Enrichment analysis
+```{r}
+library(clusterProfiler) #for determining universe/background
+library(org.Hs.eg.db)
+
+```
+```{r}
+clusters_targets = data.frame(accession_no = names(results.coef.kmeans$cluster),
+                              cluster_no = results.coef.kmeans$cluster)
+clusters_targets[,c(3,4)] = miRNA_AccessionToName(clusters_targets$accession_no)
+colnames(clusters_targets) = c(colnames(clusters_targets)[1:3], "miRNA")
+clusters_targets = clusters_targets[,-3]
+clusters_targets = merge(clusters_targets, ts_humans[,c(1,2,4)], by = "miRNA")
+
+for (i in seq(nrow(clusters_targets))){
+  clusters_targets$Gene.ID[i] = substring(clusters_targets$Gene.ID[i],1,15)
+}
+
+head(clusters_targets)
+
+
+```
+
+
+```{r}
+## Cluster 1
+c1 = clusters_targets$Gene.ID[clusters_targets$cluster_no == 1] #genes of cluster 
+c1_mimat_id = clusters_targets$accession_no[clusters_targets$cluster_no == 1]
+
+#GO ontology: does hypergeometric test
+ego1 <- enrichGO(gene          = c1, #cluster
+                # universe      = de_mirna_targets$Gene.ID, #all genes
+                OrgDb         = org.Hs.eg.db, #human
+                keyType       = 'ENSEMBL', #annotations
+                ont           = "ALL",
+                pAdjustMethod = "BH", #correct for multi testing
+                pvalueCutoff  = 1,
+                qvalueCutoff  = 0.05,  #threshold
+                readable      = TRUE)
+head(ego1)
+dotplot(ego1)
+ego.df.1 = as.data.frame(ego1)
+heat.map1 <- pheatmap(results.coef[c1_mimat_id,], cluster_col=FALSE, breaks=breaksList, cluster_rows=FALSE, show_rownames=FALSE,color = color,fontsize_row = 3, legend=TRUE,border_color = NA)
+grid.newpage()
+grid.draw(heat.map1$gtable)
+
+
+```
+
+```{r}
+
+## Cluster 2
+c2 = clusters_targets$Gene.ID[clusters_targets$cluster_no == 2] #genes of cluster 
+c2_mimat_id = clusters_targets$accession_no[clusters_targets$cluster_no == 2]
+
+#GO ontology: does hypergeometric test
+ego2 <- enrichGO(gene          = c2, #cluster
+                # universe      = de_mirna_targets$Gene.ID, #all genes
+                OrgDb         = org.Hs.eg.db, #human
+                keyType       = 'ENSEMBL', #annotations
+                ont           = "ALL",
+                pAdjustMethod = "BH", #correct for multi testing
+                pvalueCutoff  = 1,
+                qvalueCutoff  = 0.05,  #threshold
+                readable      = TRUE)
+head(ego2)
+dotplot(ego2)
+ego.df.2 = as.data.frame(ego2)
+heat.map2 <- pheatmap(results.coef[c2_mimat_id,], cluster_col=FALSE, breaks=breaksList, cluster_rows=FALSE, show_rownames=FALSE,color = color,fontsize_row = 3, legend=TRUE,border_color = NA)
+grid.newpage()
+grid.draw(heat.map1$gtable)
+
+```
+
+
+```{r}
+
+## Cluster 3
+c3 = clusters_targets$Gene.ID[clusters_targets$cluster_no == 3] #genes of cluster 
+c3_mimat_id = clusters_targets$accession_no[clusters_targets$cluster_no == 3]
+
+#GO ontology: does hypergeometric test
+ego3 <- enrichGO(gene          = c3, #cluster
+                # universe      = de_mirna_targets$Gene.ID, #all genes
+                OrgDb         = org.Hs.eg.db, #human
+                keyType       = 'ENSEMBL', #annotations
+                ont           = "ALL",
+                pAdjustMethod = "BH", #correct for multi testing
+                pvalueCutoff  = 1,
+                qvalueCutoff  = 0.05,  #threshold
+                readable      = TRUE)
+head(ego3)
+dotplot(ego3)
+ego.df.3 = as.data.frame(ego3)
+heat.map3 <- pheatmap(results.coef[c3_mimat_id,], cluster_col=FALSE, breaks=breaksList, cluster_rows=FALSE, show_rownames=FALSE,color = color,fontsize_row = 3, legend=TRUE,border_color = NA)
+grid.newpage()
+grid.draw(heat.map1$gtable)
+
+```
+
+
+# looking at class gtf miRNAs 
+```{r eval = FALSE}
+
+LINUX COMMANDS
+
+# Filtering GTF file Homo_sapiens.GRCh38.108.chr.gtf to miRNAs only
+grep -w "miRNA" Homo_sapiens.GRCh38.108.chr.gtf > Homo_sapiens.GRCh38.108.miRNA.gtf 
+featureCounts -t exon -g gene_id -a /home/marianaurera/capstone/Homo_sapiens.GRCh38.108.miRNA.gtf -T 4 -s 1 -o /home/marianaurera/capstone/aligned/kidney_counts_newtry_classgtf.txt RXF393_1_sorted.bam RXF393_2_sorted.bam SKRC39_1_sorted.bam SKRC39_2_sorted.bam # quantifying featureCounts
+
+```
+
+
+```{r}
+## loading in data
+kidney_class= read.delim("aligned/kidney_counts_newtry_classgtf.txt", sep="\t", comment.char="#", row.names=1)
+kidney_class_read_counts = kidney_class[, c(6:9)]
+colnames(kidney_class_read_counts) <- c("RXF393_1", "RXF393_2", "SKRC39_1", "SKRC39_2")
+
+# Compressing redundant miRNAs
+kidney_class_merge_counts = kidney_class_read_counts
+kidney_class_merge_counts$ID = rownames(kidney_class_read_counts)
+kidney_class_merge_counts = kidney_class_merge_counts[,c(5,1:4)]
+
+for (i in seq(nrow(kidney_class_merge_counts))) {
+  kidney_class_merge_counts$ID[i] <- substring(kidney_class_merge_counts$ID[i], 1, 15)
+}
+
+rownames(kidney_class_merge_counts) = seq(nrow(kidney_class_merge_counts))
+
+
+kidney_class_merge_counts_KC1 = aggregate(kidney_class_merge_counts$RXF393_1, 
+                                 by=list(kidney_class_merge_counts$ID), FUN=sum)
+kidney_class_merge_counts_KC2 = aggregate(kidney_class_merge_counts$RXF393_2, 
+                                 by=list(kidney_class_merge_counts$ID), FUN=sum)
+kidney_class_merge_counts_KNC1 = aggregate(kidney_class_merge_counts$SKRC39_1, 
+                                 by=list(kidney_class_merge_counts$ID), FUN=sum)
+kidney_class_merge_counts_KNC2 = aggregate(kidney_class_merge_counts$SKRC39_2, 
+                                 by=list(kidney_class_merge_counts$ID), FUN=sum)
+
+new_kidney_classmerge_counts = data.frame(ID = kidney_class_merge_counts_KC1$Group.1,
+                                     RXF393_1 = kidney_class_merge_counts_KC1$x,
+                                     RXF393_2 = kidney_class_merge_counts_KC2$x,
+                                     SKRC39_1 = kidney_class_merge_counts_KNC1$x,
+                                     SKRC39_2 = kidney_class_merge_counts_KNC2$x)
+rownames(new_kidney_classmerge_counts) = new_kidney_classmerge_counts$ID
+new_kidney_classmerge_counts = new_kidney_classmerge_counts[, -1]
+kidney_class_read_counts = new_kidney_classmerge_counts
+kidney_class_read_counts = kidney_class_read_counts[apply(kidney_class_read_counts, 1, function(row) any(row > 0 )),]
+
+dds_class = DESeqDataSetFromMatrix(kidney_class_read_counts, experimental.md.kidney, ~ condition)
+dds_class <- estimateSizeFactors(dds_class)   #identifying housekeeping genes: normalizing for library composition, seq depth
+dds_class <- estimateDispersions(dds_class)   #estimative variances per gene
+
+dds_class_norm = as.data.frame(counts(dds_class, normalized = TRUE)) 
+
+# how many miRNAs detected per sample
+mirna_detected_samples_class <- data.frame(samplenames = experimental.md.kidney$samplename,
+                                     detected_mirnas = rep(NA,
+                                                           length(experimental.md.kidney$samplename)))
+for (i in colnames(dds_class_norm)){
+  mirna_detected_samples_class$detected_mirnas[mirna_detected_samples$samplenames == i] = sum(apply(dds_class_norm[i], 1, function(x){ mean(x) >= 1 }))
+}
+barplot(mirna_detected_samples$detected_mirnas,
+        names.arg = mirna_detected_samples$samplenames,
+        main = "Number of miRNAs detected in each sample (using class GTF)",
+        ylab = "Number of miRNAs detected",
+        xlab = "Samples",
+        ylim = c(0, 500))
+mirna_detected_samples_class
+
+sum(apply(dds_class_norm, 1, function(x){ mean(x) >= 1 })) #492 distinct miRNAs detected in at least one sample
+
+```
+
+
+As of Sept. 22 ==== to do: 
+# [DONE] how many miRNA plots detected
+# - run go enrichment on upregulated and downregulated separately
+# - take a look at context score: what it is? whats a reliable cutoff? —> how does that affect the number of target genes predicted —> are they enriched for anything
+# [DONE] microarray analysis: see what happens when remove RXF 2, probes not matched to a gene, remove redundant probes
+
+
+
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+

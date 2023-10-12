@@ -16,19 +16,32 @@ library(knitr)
 library("illuminaio")
 
 bgxfile = dir(path="./", pattern="bgx")
-idatfiles = dir(path="./", pattern=".idat")
+idatfiles = dir(path="./GSE80080_RAW", pattern=".idat", full.names = T)
+# idatfiles = idatfiles[-4] # removing RXF2
 data = read.idat(idatfiles, bgxfile)
+data$other$Detection <- detectionPValues(data)
+
 ```
+
+
+
 
 ```{r}
 pe = propexpr(data)
-kable(pe, "markdown")
+kable(pe, "markdown") # proprotion of probes being detected as expressed, should be consistent
 ```
+
+
 
 
 ```{r}
 data.norm = neqc(data) # normalize data
+# table(apply(data.norm$other$Detection, 1, function(x){all(x < 0.05)}))
+
+data.norm
+
 ```
+
 
 ```{r}
 eset = data.norm$E
@@ -40,9 +53,15 @@ plot(clusters)
 
 ```{r}
 sampledata = data.frame(geo=c("GSM2112539", "GSM2112540", "GSM2112541", "GSM2112542", "GSM2112543", "GSM2112544"),
-						name = c("SKR_1", "RXF_1", "SKR_2", "RXF_2", "SKR_3", "RXF_3"), 
+						name = c("SKR_1", "RXF_1", "SKR_2", "RXF_2", "SKR_3", "RXF_3"),
 						condition = c("SKR", "RXF", "SKR", "RXF", "SKR", "RXF")
 						)
+
+#without RXF 2
+# sampledata = data.frame(geo=c("GSM2112539", "GSM2112540", "GSM2112541", "GSM2112543", "GSM2112544"),
+# 						name = c("SKR_1", "RXF_1", "SKR_2", "SKR_3", "RXF_3"),
+# 						condition = c("SKR", "RXF", "SKR", "SKR", "RXF")
+# 						)
 ```
 
 
@@ -55,8 +74,8 @@ data = as.data.frame(pca$x)
 data$name = sampledata$name
 data$condition = sampledata$condition
 ggplot(data, aes(PC1, PC2, colour=condition)) + geom_point(size=3) +
-  scale_x_continuous(paste0("PC1: ",percentVar[1],"% variance"), limits=c(-30, 30)) +
-  scale_y_continuous(paste0("PC2: ",percentVar[2],"% variance"), limits=c(-45, 30)) +
+  scale_x_continuous(paste0("PC1: ",percentVar[1],"% variance"), limits=c(-45, 45))  + 
+  scale_y_continuous(paste0("PC2: ",percentVar[2],"% variance"), limits=c(-45, 45)) +
   coord_fixed() + theme_classic() + geom_text(data = data, aes(PC1,PC2, label = name), hjust = 1.2)
 ```
 
@@ -65,21 +84,327 @@ ggplot(data, aes(PC1, PC2, colour=condition)) + geom_point(size=3) +
 condition <- factor(sampledata$condition, unique(sampledata$condition))
 design <- model.matrix(~0 + condition)
 colnames(design) <- c("SKR", "RXF")
+head(design) # design matrix: ???
 ```
 
 
+
+```{r without unexpressed probes}
+
+# table(apply(data.norm$other$Detection, 1, function(x){any(x < 0.05)})) # how many are expressed
+
+# data.norm.filtered = data.norm[apply(data.norm$other$Detection, 1, function(x){any(x < 0.05)}),] # expressed in any sample
+data.norm.filtered = data.norm[(rowSums(data.norm$other$Detection < 0.05) >= 3),] # expressed in at least 3 samples
+
+```
+
+```{r without the probes without genes}
+table(table(data.norm$genes$Symbol))
+
+ 
+empty_probes = c(which(data.norm.filtered$genes$Symbol == ""), which(data.norm.filtered$genes$Symbol == " "), which(is.na(data.norm.filtered$genes$Symbol)))
+data.norm.filtered$genes = data.norm.filtered$genes[-empty_probes,]
+nrow(data.norm.filtered$genes)
+
+remove_empty_probes <- function(E, genes){
+  
+  print(dim(E))
+  E_remove = c()
+  for (i in seq(length(rownames(E)))){
+    if (!(rownames(E)[i] %in% genes$Array_Address_Id)){
+      E_remove = c(E_remove, i)
+    }
+  }
+  E = E[-E_remove,]
+  print(dim(E))
+  return(E)
+}
+
+data.norm.filtered$E = remove_empty_probes(data.norm.filtered$E, data.norm.filtered$genes)
+nrow(data.norm.filtered)
+
+
+
+
+```
+
+```{r without redundant probes}
+
+#n
+# empty_probes = c(which(data.norm.filtered$genes$Symbol == ""), which(data.norm.filtered$genes$Symbol == " "), which(is.na(data.norm.filtered$genes$Symbol)))
+# x = data.norm.filtered$genes[-empty_probes,]
+
+widest_range_access = c()
+all_repeat_access_ids = c() # all access IDs associated with repeated genes 
+for (i in unique(data.norm.filtered$genes$Symbol[which(duplicated(data.norm.filtered$genes$Symbol))])) {
+  quartile_range = c()
+  access_id = as.character(data.norm.filtered$genes$Array_Address_Id[data.norm.filtered$genes$Symbol == i]) # collect access IDs of those with multiple gene symbols
+  all_repeat_access_ids = c(all_repeat_access_ids, access_id)
+  for (t in access_id){ # for every probe, calculate the interquartile range
+    quartile_range = c(quartile_range, abs(summary(data.norm.filtered$E[t,])[5] - summary(data.norm.filtered$E[t,])[2]))
+  }
+  widest_range_access = c(widest_range_access, access_id[which.max(quartile_range)])
+}
+
+remove_repeats = all_repeat_access_ids[!(all_repeat_access_ids %in% widest_range_access)]
+data.norm.filtered = data.norm.filtered[-(which(rownames(data.norm.filtered) %in% remove_repeats)),]
+nrow(data.norm.filtered)
+
+# number of unique genes detected
+length(unique(data.norm.filtered$genes$Symbol[data.norm.filtered$genes$Array_Address_Id %in% rownames(data.norm.filtered$E)]))
+length(unique(data.norm.filtered$genes$Symbol)) # 18895 genes
+
+
+
+
+```
+
 ```{r}
-fit <- lmFit(data.norm, design)
+# DE 
+
+fit <- lmFit(data.norm.filtered, design)
 contrast.matrix <- makeContrasts(kc_knc = RXF - SKR, levels=design)
 kc_fits <- contrasts.fit(fit, contrast.matrix)
 kc_ebFit <- eBayes(kc_fits)
-
 results = topTable(kc_ebFit, coef=1, number=nrow(data.norm))
+sum(results$P.Value < 0.01) 
+# 1196 genes, not accounting for multiple testing (with: all samples, expressed genes at (any < 0.05), no empty probes and repeat probes with lower interquartile range)
+# 1527 genes, not accounting for multiple testing (with: all samples, expressed genes in at least 3 samples. no empty probes and repeat probes with lower interquartile range)
+# 800 genes, not accounting for multiple testing (with: excluding RXF2, expressed genes at (any < 0.05), no empty probes and repeat probes with lower interquartile range)
+# 1079 genes, not accounting for multiple testing (with: excluding RXF2, expressed genes in at least 3 samples. no empty probes and repeat probes with lower interquartile range)
 
-sum(results$adj.P.Val < 0.1)
+
+
+sum(results$P.Value < 0.1) 
+# 5102 genes, not accounting for multiple testing (with: all samples, expressed genes at (any < 0.05), no empty probes and repeat probes with lower interquartile range)
+# 4930 genes, not accounting for multiple testing (with: all samples, expressed genes in at least 3 samples. no empty probes and repeat probes with lower interquartile range)
+# 4401 genes, not accounting for multiple testing (with: excluding RXF2, expressed genes at (any < 0.05), no empty probes and repeat probes with lower interquartile range)
+# 4308 genes, not accounting for multiple testing (with: excluding RXF2, expressed genes in at least 3 samples. no empty probes and repeat probes with lower interquartile range)
+
+
+sum(results$adj.P.Val < 0.1) 
+# 299 with: all samples, expressed genes at (any < 0.05), no empty probes and repeat probes with lower interquartile range
+# 1655 with: all samples, expressed genes in at least 3 samples, no empty probes and repeat probes with lower interquartile range -- YAY
+# 0! with: without RXF2, expressed genes at (any < 0.05), no empty probes and repeat probes with lower interquartile range
+# 577 with: all samples, expressed genes in at least 3 samples, no empty probes and repeat probes with lower interquartile range
+
+de_results = results[results$adj.P.Val < 0.1,]
+de_up_results = de_results[de_results$logFC > 0,] # upregulated genes
+de_down_results = de_results[de_results$logFC < 0,] # downregulated genes
+
+sum(de_results$logFC > 0)
+hist(de_results$logFC)
+
+
+hist(results$P.Value, xlab="pvalue", main="") 
+hist(results$adj.P.Val, xlab="pvalue", main="") 
+
 ```
 
 
+
+```{r GSEA of all expressed genes}
+
+library(fgsea)
+
+
+pathways <- c(gmtPathways("h.all.v2023.1.Hs.symbols.gmt"), gmtPathways("c2.cp.v2023.1.Hs.symbols.gmt")) 
+
+
+changes_lfc = results$logFC
+names(changes_lfc) = results$Symbol
+
+changes_lfc = changes_lfc[order(changes_lfc, decreasing=TRUE)] #ranked list
+head(changes_lfc)
+head(pathways)
+
+fgseaRes <- fgsea(pathways = pathways, 
+                  stats = changes_lfc,
+                  minSize=15,
+                  maxSize=500) #to generate p-value
+
+head(fgseaRes[order(pval), ], n = 9)
+sum(fgseaRes$padj < 0.1)
+
+changing_pathways = fgseaRes[fgseaRes$padj < 0.1,]
+changing_pathways$pathway
+
+```
+
+# Pathway 1: Hallmark Epithelial Mesenchymal Transition 
+
+EXPLANATION: 
+```{r}
+
+plotEnrichment(pathways[[changing_pathways$pathway[1]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[1])
+
+```
+
+
+
+# Pathway 2: Hallmark Hypoxia
+
+EXPLANATION: 
+```{r}
+
+plotEnrichment(pathways[[changing_pathways$pathway[2]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[2])
+
+```
+
+# Pathway 3: Hallmark TNFA Signaling via NFKB
+
+EXPLANATION: 
+```{r}
+
+plotEnrichment(pathways[[changing_pathways$pathway[3]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[3])
+
+```
+
+# Pathway 4: KEGG Pathways in Cancer
+
+EXPLANATION: 
+```{r}
+
+plotEnrichment(pathways[[changing_pathways$pathway[4]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[4])
+
+```
+
+
+# Pathway 5: NABA Matrisome
+
+EXPLANATION: 
+```{r}
+
+plotEnrichment(pathways[[changing_pathways$pathway[5]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[5])
+
+```
+
+# Pathway 6: NABA Matrisome Associated
+
+EXPLANATION: 
+```{r}
+
+plotEnrichment(pathways[[changing_pathways$pathway[6]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[6])
+
+```
+
+# Pathway 7: PID FRA Pathway
+
+EXPLANATION: 
+```{r}
+
+plotEnrichment(pathways[[changing_pathways$pathway[7]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[7])
+
+```
+
+# Pathway 8: WP Adipogenesis
+
+EXPLANATION: 
+```{r}
+
+plotEnrichment(pathways[[changing_pathways$pathway[8]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[8])
+
+```
+
+
+# Pathway 9: WP Nuclear Receptors Metapathway
+
+EXPLANATION: 
+```{r}
+
+plotEnrichment(pathways[[changing_pathways$pathway[9]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[9])
+
+```
+
+
+```{r ClusterProfiler / GO -- UPREGULATED}
+
+## loading in libraries
+library(pheatmap)
+library("grid")
+# library("gridExtra")
+library(cluster)
+
+rld_up = data.norm.filtered$E[data.norm.filtered$E$Array_Address_Id %in% rownames(de_up_results)]
+# rld_signif = assay(rld)[rownames(de_up_results),]
+rld_z = t(apply(rld_up, 1, function(x){ (x - mean(x)) / sd(x)})) # converting to zscore --> to scale
+# Converting the values to z-scores allows us to group the genes by similar pattern of change
+
+#This allows us to get a better understanding of the distribution of patterns of change.   
+thr = 3 # threshold on z-score
+rld_z[rld_z > thr] = thr # anything greater than 3 --> just 3
+rld_z[rld_z < -thr] = -thr # anything less than 3 --> just -3
+
+
+# elbow criterion - choosing K
+set.seed(123)
+k.max <- 20 # number of replicates/samples (N = k)
+wss <- sapply(2:k.max, 
+              function(k){kmeans(rld_z, k, nstart=10,iter.max = 15 )$tot.withinss})
+plot(2:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares",
+     xlim = c(0, 20))
+# Choosing K: K should be around 4 clusters because this is when the variation 
+# accounted for begins to plateau according to the elbow criterion
+
+
+# How well does each gene belong in its cluster: Silhouette
+SIL = sapply(2:20, function(i) { 
+  #print(i)
+  results.coef.kmeans =  kmeans(rld_z, i, nstart=50, iter.max=50)
+    mean(silhouette(results.coef.kmeans$cluster, dist(rld_z))[,3]) }) # average fit of each gene within a cluster
+plot(c(0,SIL), type="b") #elbows at around 6, indicating the 6 may be the most appropriate k
+
+
+# Testing 7 clusters
+k = 5
+results.coef.kmeans =  kmeans(rld_z, k, nstart=10, iter.max=50)
+
+
+x = silhouette(results.coef.kmeans$cluster, dist(rld_z))
+plot(x, col="black", border=NA, main=paste("k = ", k, collapse = "")) # Silhoutte plot
+table(results.coef.kmeans$cluster) # how many genes fit per cluster
+
+
+## heatmap by cluster
+results.coef = rld_z[order(results.coef.kmeans$cluster),] # gets rid of scale, allows us to focus on 
+#only the pattern of expression changes
+indicator = results.coef.kmeans$cluster[order(results.coef.kmeans$cluster)]
+color = c(colorRampPalette(c("mediumblue", "white"))(14), colorRampPalette(c("white", "firebrick2"))(14))
+breaksList = seq(-3, 3, length.out = 29)
+heat.map <- pheatmap(results.coef, cluster_col=FALSE, breaks=breaksList, 
+                     cluster_rows=FALSE, show_rownames=FALSE,color = color,
+                     fontsize_row = 3, legend=TRUE,border_color = NA, main = "upregulated genes")
+grid.newpage()
+grid.draw(heat.map$gtable)
+
+
+```
+
+
+
+
+
+
+
+How do we get this to be better? (TO DO by Sept 28)
+# use this to filter de_mirna_up_targets to only show genes expresed in muscle
+# [SKIP] try running this again without RXF 2
+# [DONE]filter results df to remove the ones without genes 
+# [done I THINK?] filter to use only one probe per gene --> which probe to use? --> pick probe with highest interquartile range (most variable)
+
+TO DO by Oct 5:
+# Take ALL EXPRESSED genes and put them in GSEA --> do not use GO and clusterprofiler
+# [DONE] remove the probes without expression --> detectionpvalues() --> figure out propexpr cutoff (? 0.05)
+# [DONE] try all 3filter steps with and without RXF 2
+
+TO DO by Oct
+# Run clusterprofiler & GO on all 
+# Look at the different pathways with padj < 0.1 --> vaildate this dataset, is this useful?
+# run clusterprofiler on up and downregulated genes separately
+# filter miRNA de with genes de --> enrichment analysis, fold changes of genes, context score filters
 
 
 ```{r}
