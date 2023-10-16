@@ -106,22 +106,25 @@ empty_probes = c(which(data.norm.filtered$genes$Symbol == ""), which(data.norm.f
 data.norm.filtered$genes = data.norm.filtered$genes[-empty_probes,]
 nrow(data.norm.filtered$genes)
 
-remove_empty_probes <- function(E, genes){
-  
-  print(dim(E))
-  E_remove = c()
-  for (i in seq(length(rownames(E)))){
-    if (!(rownames(E)[i] %in% genes$Array_Address_Id)){
-      E_remove = c(E_remove, i)
-    }
-  }
-  E = E[-E_remove,]
-  print(dim(E))
-  return(E)
-}
+data.norm.filtered$E = data.norm.filtered$E[rownames(data.norm.filtered$E) %in% data.norm.filtered$genes$Array_Address_Id,]
+nrow(data.norm.filtered$E) # 18533
 
-data.norm.filtered$E = remove_empty_probes(data.norm.filtered$E, data.norm.filtered$genes)
-nrow(data.norm.filtered)
+# remove_empty_probes <- function(E, genes){
+#   
+#   print(dim(E))
+#   E_remove = c()
+#   for (i in seq(length(rownames(E)))){
+#     if (!(rownames(E)[i] %in% genes$Array_Address_Id)){
+#       E_remove = c(E_remove, i)
+#     }
+#   }
+#   E = E[-E_remove,]
+#   print(dim(E))
+#   return(E)
+# }
+# 
+# data.norm.filtered$E = remove_empty_probes(data.norm.filtered$E, data.norm.filtered$genes)
+# nrow(data.norm.filtered) # 18533
 
 
 
@@ -148,11 +151,11 @@ for (i in unique(data.norm.filtered$genes$Symbol[which(duplicated(data.norm.filt
 
 remove_repeats = all_repeat_access_ids[!(all_repeat_access_ids %in% widest_range_access)]
 data.norm.filtered = data.norm.filtered[-(which(rownames(data.norm.filtered) %in% remove_repeats)),]
-nrow(data.norm.filtered)
+nrow(data.norm.filtered) #14428
 
 # number of unique genes detected
 length(unique(data.norm.filtered$genes$Symbol[data.norm.filtered$genes$Array_Address_Id %in% rownames(data.norm.filtered$E)]))
-length(unique(data.norm.filtered$genes$Symbol)) # 18895 genes
+length(unique(data.norm.filtered$genes$Symbol)) # 14428 genes
 
 
 
@@ -202,6 +205,10 @@ hist(results$adj.P.Val, xlab="pvalue", main="")
 ```
 
 
+```{r}
+write.csv(de_results, file = "de_genes_microarray.csv")
+```
+
 
 ```{r GSEA of all expressed genes}
 
@@ -234,6 +241,11 @@ changing_pathways$pathway
 # Pathway 1: Hallmark Epithelial Mesenchymal Transition 
 
 EXPLANATION: 
+"Epithelial-mesenchymal transition (EMT) is a biological program whereby epithelial cells acquire mesenchymal phenotype... cancer cells that undergo EMT, apart from invasive, metastatic properties, also exhibit stem cell traits and resistance to programmed cell death...EMT has been linked to tumor aggressiveness and worse clinical features, which is not surprising, since EMT promotes several malignant characteristics including migration and invasion, stemness, metabolic reprogramming, immune evasion and resistance to therapy." (https://link-springer-com.libproxy1.nus.edu.sg/article/10.1007/s11010-023-04670-x)
+
+Cancer cells "lose epithelial characteristics and integrity, acquire mesenchymal features, and become motile" through EMT and fuel invasion of other parts of the body. "EMT is increasingly understood to orchestrate a large variety of complementary cancer features, such as tumor cell stemness, tumorigenicity, resistance to therapy and adaptation to changes in the microenvironment." (https://www-embopress-org.libproxy1.nus.edu.sg/doi/full/10.15252/embj.2021108647)
+
+Notes: No information on how it is related to cachexia? maybe because cachexia occurs in more advanced cancers?
 ```{r}
 
 plotEnrichment(pathways[[changing_pathways$pathway[1]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[1])
@@ -245,6 +257,11 @@ plotEnrichment(pathways[[changing_pathways$pathway[1]]], changes_lfc, ticksSize 
 # Pathway 2: Hallmark Hypoxia
 
 EXPLANATION: 
+"It is thus speculated that during cancer initiation and progression, [Hypoxia-inducible factor 1a] greatly helps pancreatic cells to gain oncogenic properties that allow them to face and overcome the hypoxic conditions, like high proliferative capacity, invasion and metastatic potential...tumor and stromal HIF-1α signaling enhances innate radiation resistance of hypoxic pancreatic tumor cells." (https://www.mdpi.com/2072-6694/2/4/2138)
+
+Hypoxia could stimulate glutamine import, glutamine can be used to fuel proliferation of pancreatic cancer cells (along with glucose). (https://www.mdpi.com/2072-6694/2/4/2138)
+
+"increased HIF-1α in the heart, EDL, soleus, and diaphragm of tumor-bearing mice...  The effect of hypoxia and subsequent increase in HIF-1α in the heart has both beneficial and detrimental effects. Transient hypoxia and induction of HIF-1α have been shown to be cardioprotective in high-altitude training and in myocardial infarction (20, 31, 51). A plausible mechanism for this is that HIF-1α regulates the oxygen consumption of mitochondria, providing protection during hypoxic events and decreased oxygen availability (36)." (https://journals.physiology.org/doi/full/10.1152/ajpheart.00090.2016)
 ```{r}
 
 plotEnrichment(pathways[[changing_pathways$pathway[2]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[2])
@@ -254,6 +271,13 @@ plotEnrichment(pathways[[changing_pathways$pathway[2]]], changes_lfc, ticksSize 
 # Pathway 3: Hallmark TNFA Signaling via NFKB
 
 EXPLANATION: 
+NF-kB is a transcription factor that is activated in response to many things such as pro-inflammatory cytokine, TNFa. TNFa is produced by many cell types such as smooth muscle cells in skeletal muscle and adipocytes. (https://link.springer.com/chapter/10.1007/978-981-13-1435-3_12)
+
+"TNF-α is responsible for the increase in gluconeogenesis, loss of adipose tissue and proteolysis, while causing decrease in protein, lipid and glycogen synthesis...TNF-α increases the corticotrophin-releasing hormone (CRH) level and decreases food intake...NF-kB induced catabolic signaling plays a key role in protein degradation associated with cachexia...TNF-α activates nuclear factor kappa B (NF-κB) which is a primary mediator for the control of transcription and a major applicant for signaling during catabolism. TNF-α rapidly promotes activation of NF-kB in cells of skeletal muscle, including differentiable myotubes and undifferentiable myoblasts...NF-kB affects on the expression of genes which regulate ubiquitin proteasome pathway (UPP) and undoubtedly promotes the loss of protein" (https://www-sciencedirect-com.libproxy1.nus.edu.sg/science/article/pii/S0024320516306853#bb0170)
+
+TNF-a leads to spikes in NF-kB activity leading to prolonged changes in protein levels in muscles (protein loss). (https://respiratory-research.biomedcentral.com/articles/10.1186/rr67)
+
+"NF-κB was activated in muscle progenitors during cachexia, leading to sustained Pax7 expression. In turn, a self-renewing signal in myogenic cells is likely propagated that results in their inability to progress through a differentiation program...activation of NF-κB leading to Pax7 appears crucial in directing proper muscle differentiation at different stages of development and under different environmental conditions." (https://www-ncbi-nlm-nih-gov.libproxy1.nus.edu.sg/pmc/articles/PMC3809785/)
 ```{r}
 
 plotEnrichment(pathways[[changing_pathways$pathway[3]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[3])
@@ -291,6 +315,11 @@ plotEnrichment(pathways[[changing_pathways$pathway[6]]], changes_lfc, ticksSize 
 # Pathway 7: PID FRA Pathway
 
 EXPLANATION: 
+"accumulating studies support that increased expression of AP-1 is associated with a variety of human cancers, and AP-1 is actively implicated in tumor progression and development." (https://pubs.acs.org/doi/full/10.1021/jm5004733#)
+
+"After activation, AP-1 regulates the expression of downstream genes involved in various aspects of cancer biology, such as cell growth, apoptosis, angiogenesis, invasion, metastasis and drug resistance." (https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10361657/)
+
+Increased Fra-1 in C2C12 mouse muscle cells comes with decreased myosin heavy chain (MyHC) expression. "When we overexpress the Fra-1 subunit in C2C12 cells, we see increased mRNA expression of FAS and caspases 1, 8 and 11 (ortholog of human caspase 4). Caspase 11-mediated activation of caspase 1 appears to activate IL-1β, a catabolism-inducing cytokine implicated in cachexia.  Downstream of Fra-1 expression, we also see increased caspase 3 activity and an increase in the number of TUNEL-positive apoptotic cells... TNFα signaling through the MAPK pathway leads to phosphorylation-dependent stabilization of Fra-1, and leads to a switch to Jun:Fra-1 heterodimer composition which, in turn, transcriptionally up-regulates FAS and caspases 1, 8 and 11." This leads to increased apoptosis. (https://aacrjournals.org/cancerres/article/71/8_Supplement/4786/573579/Abstract-4786-A-role-for-increased-Fra-1)
 ```{r}
 
 plotEnrichment(pathways[[changing_pathways$pathway[7]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[7])
@@ -300,6 +329,12 @@ plotEnrichment(pathways[[changing_pathways$pathway[7]]], changes_lfc, ticksSize 
 # Pathway 8: WP Adipogenesis
 
 EXPLANATION: 
+"Although skeletal muscle atrophy due to increased protein breakdown is known as the major hallmark of CAC, depletion and remodeling of adipose tissue also plays a crucial role in cachectic patients. The mechanism that drives adipose tissue depletion is multifactorial. Lipolysis is activated, accompanied by elevated total energy expenditure and suppressed adipogenesis, eventually reducing the fat mass. Several studies have revealed that adipose tissue wasting typically occurs before the appearance of other classic cachexia signs." (https://www.sciencedirect.com/science/article/pii/S2212877821001575)
+
+Upregulation of adipogenesis inhibitors, coupled with increased lipolysis, leads to decreased fat mass?
+
+"Besides, the extracellular matrix (ECM) plays a crucial role in adipocyte differentiation." --> NABA Matrisome??
+"Adipose tissue remodeling is associated with several chronic diseases, including cancer cachexia. These changes comprise morphological and structural modifications characterized by adipocyte atrophy due to impairment of several processes as increased lipid mobilization, enhanced triglyceride lipolysis, reduced lipogenesis, impaired adipogenesis, extracellular matrix (ECM) rearrangement (generally resulting in fibrosis), enhanced inflammation, and adipose tissue “browning”." (https://www.mdpi.com/1422-0067/21/14/4860)
 ```{r}
 
 plotEnrichment(pathways[[changing_pathways$pathway[8]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[8])
@@ -310,6 +345,11 @@ plotEnrichment(pathways[[changing_pathways$pathway[8]]], changes_lfc, ticksSize 
 # Pathway 9: WP Nuclear Receptors Metapathway
 
 EXPLANATION: 
+0 hits for "Nuclear Receptors Metapathway cachexia" search...
+
+Target of NRF2 which is associated with ferroptosis resistance in non-small cell lung carcinoma (https://www.nature.com/articles/s41419-023-06070-x)
+
+"because miRNA genes are transcribed by RNA polymerase II, their expression can be also regulated by nuclear receptors [21]. For example an aberrant expression of nuclear receptors such as estrogen receptor α and androgen receptor in cancer is involved in the deregulation of numerous miRNAs" (https://academic.oup.com/jid/article/212/suppl_1/S74/1052160)
 ```{r}
 
 plotEnrichment(pathways[[changing_pathways$pathway[9]]], changes_lfc, ticksSize = 1) + labs(title=changing_pathways$pathway[9])
@@ -324,8 +364,14 @@ library(pheatmap)
 library("grid")
 # library("gridExtra")
 library(cluster)
+library(org.Hs.eg.db)
+library(clusterProfiler)
 
-rld_up = data.norm.filtered$E[data.norm.filtered$E$Array_Address_Id %in% rownames(de_up_results)]
+
+
+rld_up = data.norm.filtered$E[rownames(data.norm.filtered$E) %in% rownames(de_up_results),]
+colnames(rld_up) <- sampledata$name
+rld_up = rld_up[, c(1,3,5,2,4,6)]
 # rld_signif = assay(rld)[rownames(de_up_results),]
 rld_z = t(apply(rld_up, 1, function(x){ (x - mean(x)) / sd(x)})) # converting to zscore --> to scale
 # Converting the values to z-scores allows us to group the genes by similar pattern of change
@@ -358,8 +404,8 @@ SIL = sapply(2:20, function(i) {
 plot(c(0,SIL), type="b") #elbows at around 6, indicating the 6 may be the most appropriate k
 
 
-# Testing 7 clusters
-k = 5
+# Testing 4 clusters
+k = 4
 results.coef.kmeans =  kmeans(rld_z, k, nstart=10, iter.max=50)
 
 
@@ -379,6 +425,38 @@ heat.map <- pheatmap(results.coef, cluster_col=FALSE, breaks=breaksList,
                      fontsize_row = 3, legend=TRUE,border_color = NA, main = "upregulated genes")
 grid.newpage()
 grid.draw(heat.map$gtable)
+
+
+# # get ensemble IDs
+# library(biomaRt)
+# human = useEnsembl(biomart="ENSEMBL_MART_ENSEMBL",host="https://oct2022.archive.ensembl.org", dataset="hsapiens_gene_ensembl", version=108)
+# human = useEnsembl(biomart="ENSEMBL_MART_ENSEMBL",mirror="asia", dataset="hsapiens_gene_ensembl", version="108")
+# bm.annotations = getBM(attributes=c("ensembl_gene_id","hgnc_symbol"), mart=human, 
+#                        values=data.norm.filtered$genes$Symbol, 
+#                        uniqueRows=TRUE)
+
+## Cluster 1
+c1 = unique(data.norm.filtered$genes$Symbol[data.norm.filtered$genes$Array_Address_Id %in% names(results.coef.kmeans$cluster[results.coef.kmeans$cluster == 1])]) #171 gene IDs
+# c1 = bm.annotations$ensembl_gene_id[bm.annotations$hgnc_symbol %in% c1] #138 ensemble IDs
+c1.ensembl = bitr(c1, fromType = "SYMBOL", toType = "ENSEMBL", OrgDb = org.Hs.eg.db)
+
+
+#GO ontology: does hypergeometric test
+ego1 <- enrichGO(gene          = c1, #cluster
+                # universe      = de_mirna_targets$Gene.ID, #all genes
+                OrgDb         = org.Hs.eg.db, #human
+                keyType       = 'SYMBOL', #gene symbol
+                ont           = "ALL",
+                pAdjustMethod = "BH", #correct for multi testing
+                pvalueCutoff  = 1,
+                qvalueCutoff  = 0.05)  #threshold)
+head(ego1)
+dotplot(ego1)
+ego.df.1 = as.data.frame(ego1)
+heat.map1 <- pheatmap(results.coef[c1_mimat_id,], cluster_col=FALSE, breaks=breaksList, cluster_rows=FALSE, show_rownames=FALSE,color = color,fontsize_row = 3, legend=TRUE,border_color = NA)
+grid.newpage()
+grid.draw(heat.map1$gtable)
+
 
 
 ```
@@ -403,8 +481,20 @@ TO DO by Oct 5:
 TO DO by Oct
 # Run clusterprofiler & GO on all 
 # Look at the different pathways with padj < 0.1 --> vaildate this dataset, is this useful?
+  # [DONE] Pathway 1: Hallmark Epithelial Mesenchymal Transition 
+  # [DONE] Pathway 2: Hallmark Hypoxia
+  # [DONE] Pathway 3: Hallmark TNFA Signaling via NFKB
+  # Pathway 4: KEGG Pathways in Cancer
+  # Pathway 5: NABA Matrisome
+  # Pathway 6: NABA Matrisome Associated
+  # [DONE] Pathway 7: PID FRA Pathway
+  # [DONE] Pathway 8: WP Adipogenesis
+  # [DONE] Pathway 9: WP Nuclear Receptors Metapathway
 # run clusterprofiler on up and downregulated genes separately
-# filter miRNA de with genes de --> enrichment analysis, fold changes of genes, context score filters
+# filter miRNA de with genes de
+  # enrichment analysis, 
+  # fold changes of genes, 
+  # context score filters
 
 
 ```{r}

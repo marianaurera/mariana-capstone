@@ -291,11 +291,8 @@ dds <- estimateDispersions(dds)
 
 ## filtering out low reads to fix the bimodal p-value histogram shown above
 filter = apply(counts(dds, normalized=TRUE), 1, function(x){ mean(x) >= 10 })
-# Using 60 as a threshold for low reads would adjust the histogram of p-values in 
-# the Wald test for differential expression analysis (see above). These low-reads
-# act as outlier that create two peaks in what would be a histogram for the alternative
-# hypothesis (if applicable). 
-# source: http://varianceexplained.org/statistics/interpreting-pvalue-histogram/
+
+
 dds = dds[filter, ]
 
 dds <- estimateSizeFactors(dds) 
@@ -344,81 +341,6 @@ sum(de_mirna$log2FoldChange > log2(2))# 34, number of miRNA upregulated in Cache
 ```
 
 
-#### Clustering & Visualization
-
-```{r}
-## loading in libraries
-library(pheatmap)
-library("grid")
-# library("gridExtra")
-library(cluster)
-
-
-## K-means clustering: This wqs chosen because it is easier to interpret with a large
-# dataset (more than 13,000 genes). The clustering is more robust, showing 
-# more clearly the change in expression of genes over the neuronal differentiation
-# process. 
-significant_results = results.lrt[!is.na(results.lrt$padj) & results.lrt$padj<0.05, ]
-rld_signif = assay(rld)[rownames(significant_results),]
-rld_z = t(apply(rld_signif, 1, function(x){ (x - mean(x)) / sd(x)})) # converting to zscore --> to scale
-# Converting the values to z-scores allows us to group the genes by similar pattern of change
-
-#This allows us to get a better understanding of the distribution of patterns of change.   
-thr = 3 # threshold on z-score
-rld_z[rld_z > thr] = thr # anything greater than 3 --> just 3
-rld_z[rld_z < -thr] = -thr # anything less than 3 --> just -3
-
-
-# elbow criterion - choosing K
-set.seed(123)
-k.max <- 20 # number of replicates/samples (N = k)
-wss <- sapply(2:k.max, 
-              function(k){kmeans(rld_z, k, nstart=10,iter.max = 15 )$tot.withinss})
-plot(2:k.max, wss,
-     type="b", pch = 19, frame = FALSE, 
-     xlab="Number of clusters K",
-     ylab="Total within-clusters sum of squares",
-     xlim = c(0, 20))
-# Choosing K: K should be around 4 clusters because this is when the variation 
-# accounted for begins to plateau according to the elbow criterion
-
-
-# How well does each gene belong in its cluster: Silhouette
-SIL = sapply(2:20, function(i) { 
-  #print(i)
-  results.coef.kmeans =  kmeans(rld_z, i, nstart=50, iter.max=50)
-    mean(silhouette(results.coef.kmeans$cluster, dist(rld_z))[,3]) }) # average fit of each gene within a cluster
-plot(c(0,SIL), type="b") #elbows at around 6, indicating the 6 may be the most appropriate k
-
-
-# Testing 5 clusters
-k = 3
-results.coef.kmeans =  kmeans(rld_z, k, nstart=10, iter.max=50)
-
-
-x = silhouette(results.coef.kmeans$cluster, dist(rld_z))
-plot(x, col="black", border=NA, main=paste("k = ", k, collapse = "")) # Silhoutte plot
-# This plot shows that most genes fit well into their corresponding clusters, 
-#by the low datapoints on the negative section of the x-axis. 
-# This shows that K = 6 is an appropriate number of clusters for this dataset.
-table(results.coef.kmeans$cluster) # how many genes fit per cluster
-
-
-## heatmap by cluster
-results.coef = rld_z[order(results.coef.kmeans$cluster),] # gets rid of scale, allows us to focus on 
-#only the pattern of expression changes
-indicator = results.coef.kmeans$cluster[order(results.coef.kmeans$cluster)]
-color = c(colorRampPalette(c("mediumblue", "white"))(14), colorRampPalette(c("white", "firebrick2"))(14))
-breaksList = seq(-3, 3, length.out = 29)
-heat.map <- pheatmap(results.coef, cluster_col=FALSE, breaks=breaksList, 
-                     cluster_rows=FALSE, show_rownames=FALSE,color = color,
-                     fontsize_row = 3, legend=TRUE,border_color = NA)
-grid.newpage()
-grid.draw(heat.map$gtable)
-# This graph shows 3 clusters of genes by their pattern of expression across the 
-# conditions/cell-types. 
-
-```
 
 ### Target Scan - linking gene targets and miRNAs
 ```{r}
@@ -433,6 +355,7 @@ de_mirna_targets = unique(merge(de_mirna_df, ts_humans, by = "miRNA"))
 de_mirna_up_targets = de_mirna_targets[de_mirna_df$log2FoldChange > 0, ] # just getting upregulated miRNAs (their genes go down)
 de_mirna_down_targets = de_mirna_targets[de_mirna_df$log2FoldChange < 0, ] # just getting downregulated miRNAs (their genes go up)
 
+nrow(de_mirna_up_targets) + nrow(de_mirna_down_targets) == nrow(de_mirna_targets)
 
 max(table(de_mirna_up_targets$Gene.ID))
 length(unique(de_mirna_up_targets$Gene.ID)) # 4833 gene targets based on symbol, 4854 targets based on geneID
@@ -440,6 +363,7 @@ length(unique(de_mirna_down_targets$Gene.ID)) # XXX gene targets based on symbol
 
 hist(de_mirna_up_targets$weighted.context...score)
 
+# Identifying a cut-off for context scores
 context_score_cutoff_up = c()
 for (i in seq(0, -1, -0.1)) {
   context_score_cutoff_up = c(context_score_cutoff_up, length(unique(de_mirna_up_targets$Gene.ID[de_mirna_up_targets$weighted.context...score < i])))
@@ -452,13 +376,290 @@ plot(seq(0, -1, -0.1), context_score_cutoff_up)
 ```
 
 
-
-## Enrichment analysis
+## Filter miRNAs by microarray data (genes)
 ```{r}
-library(clusterProfiler) #for determining universe/background
-library(org.Hs.eg.db)
+microarray_genes = read.csv("de_genes_microarray.csv")
+
+de_mirna_targets_filtered = de_mirna_targets[de_mirna_targets$Gene.Symbol %in% microarray_genes$Symbol,]
+nrow(de_mirna_targets_filtered) # 3070
+
+length(unique(de_mirna_targets_filtered$miRNA)) # 52 TOTAL miRNAs 
+length(unique(de_mirna_targets_filtered$miRNA[de_mirna_targets_filtered$log2FoldChange > 0])) # 12 upregulated miRNAs
+length(unique(de_mirna_targets_filtered$miRNA[de_mirna_targets_filtered$log2FoldChange < 0])) # 40 upregulated miRNAs
+
+
+length(unique(de_mirna_targets_filtered$Gene.Symbol)) # 792 TOTAL gene targets
+length(unique(de_mirna_targets_filtered$Gene.Symbol[de_mirna_targets_filtered$log2FoldChange > 0])) # 340 genes targetted by UPregulated miRNAs
+length(unique(de_mirna_targets_filtered$Gene.Symbol[de_mirna_targets_filtered$log2FoldChange < 0])) # 719 genes targetted by UPregulated miRNAs
+## Note: overlap in gene targets?
+
+table(table(de_mirna_targets_filtered$miRNA))
+
+de_mirna_up_targets_filtered = de_mirna_targets_filtered[de_mirna_targets_filtered$log2FoldChange > 0,] #635
+de_mirna_down_targets_filtered = de_mirna_targets_filtered[de_mirna_targets_filtered$log2FoldChange < 0,] #2435
+
+
 
 ```
+
+
+#### Clustering & Visualization & Enrichment Analysis
+```{r}
+
+
+## loading in libraries
+library(pheatmap)
+library("grid")
+# library("gridExtra")
+library(cluster)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(miRBaseConverter)
+
+
+hsa.gff.db <- makeTxDbFromGFF( "hsa.gff3", format="gff3" )
+ensembl.genes = genes(hsa.gff.db)
+#saveRDS(ensembl.genes, "mm.ensembl.genes.rds")
+# ensembl.genes <- readRDS("mm.ensembl.genes.rds")
+human = useEnsembl(biomart="ENSEMBL_MART_ENSEMBL",host="https://www.ensembl.org", dataset="hsapiens_gene_ensembl", version=108)
+# mouse = useEnsembl(biomart="ENSEMBL_MART_ENSEMBL",mirror="asia", dataset="hsapiens_gene_ensembl", version="108")
+bm.annotations = getBM(attributes=c("ensembl_gene_id", "entrezgene_id", "gene_biotype", "hgnc_symbol", "description"), mart=human, filters="ensembl_gene_id", values=ensembl.genes$gene_id, uniqueRows=TRUE)
+ensembl.genes$hgnc_symbol = bm.annotations$mgi_symbol[ match(ensembl.genes$gene_id, bm.annotations$ensembl_gene_id) ]
+ensembl.genes$gene_biotype = bm.annotations$gene_biotype[ match(ensembl.genes$gene_id, bm.annotations$ensembl_gene_id) ]
+ensembl.genes$status = bm.annotations$status[ match(ensembl.genes$gene_id, bm.annotations$ensembl_gene_id) ]
+ensembl.genes$description = bm.annotations$description[ match(ensembl.genes$gene_id, bm.annotations$ensembl_gene_id) ]
+ensembl.genes$entrezgene = bm.annotations$entrezgene_id[ match(ensembl.genes$gene_id, bm.annotations$ensembl_gene_id) ]
+
+```
+
+
+
+#### Clustering & Visualization & Enrichment Analysis - UPregulated miRNAs
+
+```{r}
+
+
+up_filtered_results = de_mirna_up_targets_filtered[,c(1:8)] 
+rld_signif_up = assay(rld)[up_filtered_results$accession,]
+rld_z = t(apply(rld_signif, 1, function(x){ (x - mean(x)) / sd(x)})) # converting to zscore --> to scale
+
+thr = 3 # threshold on z-score
+rld_z[rld_z > thr] = thr # anything greater than 3 --> just 3
+rld_z[rld_z < -thr] = -thr # anything less than 3 --> just -3
+
+
+# elbow criterion - choosing K
+set.seed(123)
+k.max <- 10 # number of replicates/samples (N = k)
+wss <- sapply(2:k.max, 
+              function(k){kmeans(rld_z, k, nstart=10,iter.max = 15 )$tot.withinss})
+plot(2:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares",
+     xlim = c(0, k.max))
+
+
+# How well does each gene belong in its cluster: Silhouette
+SIL = sapply(2:k.max, function(i) { 
+  #print(i)
+  results.coef.kmeans =  kmeans(rld_z, i, nstart=50, iter.max=50)
+    mean(silhouette(results.coef.kmeans$cluster, dist(rld_z))[,3]) }) # average fit of each gene within a cluster
+plot(c(0,SIL), type="b") #elbows at around 6, indicating the 6 may be the most appropriate k
+
+
+# Testing 5 clusters
+k = 5
+results.coef.kmeans =  kmeans(rld_z, k, nstart=10, iter.max=50)
+
+
+x = silhouette(results.coef.kmeans$cluster, dist(rld_z))
+plot(x, col="black", border=NA, main=paste("k = ", k, collapse = "")) # Silhoutte plot
+
+table(results.coef.kmeans$cluster) # how many genes fit per cluster
+
+
+## heatmap by cluster
+results.coef = rld_z[order(results.coef.kmeans$cluster),] # gets rid of scale, allows us to focus on 
+#only the pattern of expression changes
+indicator = results.coef.kmeans$cluster[order(results.coef.kmeans$cluster)]
+color = c(colorRampPalette(c("mediumblue", "white"))(14), colorRampPalette(c("white", "firebrick2"))(14))
+breaksList = seq(-3, 3, length.out = 29)
+heat.map <- pheatmap(results.coef, cluster_col=FALSE, breaks=breaksList, 
+                     cluster_rows=FALSE, show_rownames=FALSE,color = color,
+                     fontsize_row = 3, legend=TRUE,border_color = NA)
+grid.newpage()
+grid.draw(heat.map$gtable)
+
+# custer function
+go_up_cluster_function <- function(num){
+  c1 = de_mirna_up_targets_filtered$Gene.ID[de_mirna_up_targets_filtered$accession %in% names(results.coef.kmeans$cluster[results.coef.kmeans$cluster == num])] 
+  for (i in seq(length(c1))){
+    c1[i] = substring(c1[i],1,15)
+  }
+
+  #GO ontology: does hypergeometric test
+  ego1 <- enrichGO(gene          = c1, #cluster
+                  # universe      = de_mirna_targets$Gene.ID, #all genes
+                  OrgDb         = org.Hs.eg.db, #human
+                  keyType       = 'ENSEMBL', #annotations
+                  ont           = "ALL",
+                  pAdjustMethod = "BH", #correct for multi testing
+                  pvalueCutoff  = 1,
+                  qvalueCutoff  = 0.05,  #threshold
+                  readable      = TRUE)
+
+  print(head(ego1))
+  return(ego1)
+}
+
+# CLUSTER 1
+ego_up_1 = go_up_cluster_function(1)
+dotplot(ego_up_1)
+ego.up.df.1 = as.data.frame(ego_up_1)
+
+# CLUSTER 2
+ego_up_2 = go_up_cluster_function(2)
+dotplot(ego_up_2)
+ego.up.df.2 = as.data.frame(ego_up_2)
+
+# CLUSTER 3
+ego_up_3 = go_up_cluster_function(3) # promising !!!
+dotplot(ego_up_3)
+ego.up.df.3 = as.data.frame(ego_up_3)
+
+# CLUSTER 4
+ego_up_4 = go_up_cluster_function(4) # promising !!!
+dotplot(ego_up_4)
+ego.up.df.4 = as.data.frame(ego_up_4)
+
+# CLUSTER 5
+ego_up_5 = go_up_cluster_function(5) # promising !!!
+dotplot(ego_up_5)
+ego.up.df.5 = as.data.frame(ego_up_5)
+
+
+interesting_clusters_up = de_mirna_up_targets_filtered[de_mirna_up_targets_filtered$accession %in% unique(names(results.coef.kmeans$cluster[results.coef.kmeans$cluster %in% c(3:5)])),] 
+# cluster 3: 3 miRNAs, cluster 4: 2 miRNAs, cluster 5: 4 miRNAs
+length(unique(interesting_clusters_up$Gene.Symbol)) #284 gene targets
+length(unique(interesting_clusters_up$miRNA)) # 9 miRNAs
+
+```
+
+#### Clustering & Visualization & Enrichment Analysis - DOWNregulated miRNAs
+
+```{r}
+
+down_filtered_results = de_mirna_down_targets_filtered[,c(1:8)] 
+rld_signif_down = assay(rld)[down_filtered_results$accession,]
+rld_z = t(apply(rld_signif_down, 1, function(x){ (x - mean(x)) / sd(x)})) # converting to zscore --> to scale
+
+thr = 3 # threshold on z-score
+rld_z[rld_z > thr] = thr # anything greater than 3 --> just 3
+rld_z[rld_z < -thr] = -thr # anything less than 3 --> just -3
+
+
+# elbow criterion - choosing K
+set.seed(123)
+k.max <- 10 # number of replicates/samples (N = k)
+wss <- sapply(2:k.max, 
+              function(k){kmeans(rld_z, k, nstart=10,iter.max = 15 )$tot.withinss})
+plot(2:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares",
+     xlim = c(0, k.max))
+
+
+
+# How well does each gene belong in its cluster: Silhouette
+SIL = sapply(2:k.max, function(i) { 
+  #print(i)
+  results.coef.kmeans =  kmeans(rld_z, i, nstart=50, iter.max=50)
+    mean(silhouette(results.coef.kmeans$cluster, dist(rld_z))[,3]) }) # average fit of each gene within a cluster
+plot(c(0,SIL), type="b") #elbows at around 6, indicating the 6 may be the most appropriate k
+
+
+# Testing 5 clusters
+k = 4
+results.coef.kmeans =  kmeans(rld_z, k, nstart=10, iter.max=50)
+
+
+x = silhouette(results.coef.kmeans$cluster, dist(rld_z))
+plot(x, col="black", border=NA, main=paste("k = ", k, collapse = "")) # Silhoutte plot
+
+table(results.coef.kmeans$cluster) # how many genes fit per cluster
+
+
+## heatmap by cluster
+results.coef = rld_z[order(results.coef.kmeans$cluster),] # gets rid of scale, allows us to focus on 
+#only the pattern of expression changes
+indicator = results.coef.kmeans$cluster[order(results.coef.kmeans$cluster)]
+color = c(colorRampPalette(c("mediumblue", "white"))(14), colorRampPalette(c("white", "firebrick2"))(14))
+breaksList = seq(-3, 3, length.out = 29)
+heat.map <- pheatmap(results.coef, cluster_col=FALSE, breaks=breaksList, 
+                     cluster_rows=FALSE, show_rownames=FALSE,color = color,
+                     fontsize_row = 3, legend=TRUE,border_color = NA)
+grid.newpage()
+grid.draw(heat.map$gtable)
+
+# custer function
+go_down_cluster_function <- function(num){
+  c1 = de_mirna_down_targets_filtered$Gene.ID[de_mirna_down_targets_filtered$accession %in% names(results.coef.kmeans$cluster[results.coef.kmeans$cluster == num])] 
+  for (i in seq(length(c1))){
+    c1[i] = substring(c1[i],1,15)
+  }
+
+  #GO ontology: does hypergeometric test
+  ego1 <- enrichGO(gene          = c1, #cluster
+                  # universe      = de_mirna_targets$Gene.ID, #all genes
+                  OrgDb         = org.Hs.eg.db, #human
+                  keyType       = 'ENSEMBL', #annotations
+                  ont           = "ALL",
+                  pAdjustMethod = "BH", #correct for multi testing
+                  pvalueCutoff  = 1,
+                  qvalueCutoff  = 0.05,  #threshold
+                  readable      = TRUE)
+
+  print(head(ego1))
+  return(ego1)
+}
+
+# CLUSTER 1
+ego_down_1 = go_down_cluster_function(1)
+dotplot(ego_down_1)
+ego.down.df.1 = as.data.frame(ego_down_1)
+
+# CLUSTER 2
+ego_down_2 = go_down_cluster_function(2)
+dotplot(ego_down_2)
+ego.down.df.2 = as.data.frame(ego_down_2)
+
+# CLUSTER 3
+ego_down_3 = go_down_cluster_function(3)
+dotplot(ego_down_3)
+ego.down.df.3 = as.data.frame(ego_down_3)
+
+# CLUSTER 4
+ego_down_4 = go_down_cluster_function(4) # promising?
+dotplot(ego_down_4)
+ego.down.df.4 = as.data.frame(ego_down_4)
+
+
+
+
+interesting_clusters_down = de_mirna_down_targets_filtered[de_mirna_down_targets_filtered$accession %in% unique(names(results.coef.kmeans$cluster[results.coef.kmeans$cluster %in% c(4)])),] 
+length(unique(interesting_clusters_down$Gene.Symbol)) #332 gene targets
+length(unique(interesting_clusters_down$miRNA)) # 11 miRNAs
+
+```
+
+
+
+
+
+## Enrichment analysis
+
 ```{r}
 clusters_targets = data.frame(accession_no = names(results.coef.kmeans$cluster),
                               cluster_no = results.coef.kmeans$cluster)
@@ -552,6 +753,11 @@ grid.newpage()
 grid.draw(heat.map1$gtable)
 
 ```
+
+
+
+
+
 
 
 # looking at class gtf miRNAs 
