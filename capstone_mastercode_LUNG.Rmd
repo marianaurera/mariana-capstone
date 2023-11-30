@@ -1,0 +1,141 @@
+---
+title: "capstone_mastercode_LUNG"
+author: "Mariana Urera"
+date: "2023-11-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Alignment and Quantifying miRNAs (on Linux, server)
+
+```{r eval=FALSE}
+
+#trimming illumina universal adapter sequence
+cutadapt -a <illumina universal adapter sequence> -o <output .fq.gz> <input .fq.gz>
+cutadapt -a AGATCGGAAGAG -o NL20_S1_cut.fq.gz /home/marianaurera/capstone/Novogene\ seq\ result\ X401SC22124364-Z01-F003/X401SC22124364-Z01-F003/01.RawData/NL20_S1/NL20_S1.fq.gz 
+
+# aligning sequences
+bwa aln -t 10 <reference file .fa> <sequence file .fq.gz> > <output file .sai>
+bwa aln -t 10 /home/marianaurera/capstone/hg38.fa /home/marianaurera/capstone/BGI/RXF393_1/RXF393_1.fq.gz > /home/marianaurera/capstone/aligned/RXF393_1.sai
+
+# converting .sai to .sam
+bwa samse <reference file .fa> <input aligned file .sai> <sequence file .fq.gz> > <output file .sam>
+
+# converting sam to bam file
+samtools view -bS -h <.sam file> > <.bam file>
+  
+# sorting bam file
+samtools sort -O bam -o <test_sorted.bam> <input test.bam file>
+  
+# indexing bam file: yields .bam.bai file
+samtools index <test_sorted.bam>
+
+
+# NEW quantifying miRNAs with featureCounts ()
+featureCounts -t miRNA -g ID -F GFF -a <.gff/.gtf reference file> -T 4 -s 1 -o <output .txt file> <input sorted .bam file>
+featureCounts -t miRNA -g ID -F GFF -a /home/marianaurera/capstone/hsa.gff3 -T 4 -s 1 -o /home/marianaurera/capstone/aligned/kidney_counts.txt RXF393_1_sorted.bam RXF393_2_sorted.bam SKRC39_1_sorted.bam SKRC39_2_sorted.bam
+
+
+```
+
+
+```{r}
+# load libraries
+
+library(biomaRt)
+
+
+```
+
+
+
+```{r load read counts}
+
+NL20 <- read.csv("lung_NL20_counts.txt", sep="\t", comment.char="#", row.names=1)
+NL20_counts <- NL20[, c(6:7)]
+colnames(NL20_counts) <- c("NL20_1", "NL20_2")
+
+LL2 <- read.csv("lung_LL2_counts.txt", sep="\t", comment.char="#", row.names=1)
+LL2_counts <- LL2[, c(6:7)]
+colnames(LL2_counts) <- c("LL2_1", "LL2_2")
+
+```
+
+
+## Getting conserved miRNAs between mice and humans
+
+```{r}
+# human_ensembl <- useEnsembl(biomart = "genes", dataset = "hsapiens_gene_ensembl")
+# human_ensembl = useEnsembl(biomart="ENSEMBL_MART_ENSEMBL",host="https://www.ensembl.org", dataset="hsapiens_gene_ensembl", version="108")
+mouse_ensembl = useEnsembl(biomart="ENSEMBL_MART_ENSEMBL",mirror="asia", dataset="mmusculus_gene_ensembl", version="109")
+human_ensembl = useEnsembl(biomart="ENSEMBL_MART_ENSEMBL",mirror="asia", dataset="hsapiens_gene_ensembl", version="109")
+
+human_attributes <- listAttributes(human_ensembl)
+mouse_attributes <- listAttributes(mouse_ensembl)
+
+
+mouse_query_gen <- getBM(attributes = c("ensembl_gene_id", 
+                                    "mgi_symbol", 
+                                    "description", 
+                                    "gene_biotype",
+                                    "mirbase_id",
+                                    "mirbase_accession"
+                                    ),
+      filters = "mirbase_id",
+      values = names(LL2_counts),
+      mart = mouse_ensembl)
+
+human_query_mir <- getBM(attributes = c("ensembl_gene_id", 
+                                    "hsapiens_homolog_ensembl_gene", #Mouse gene stable ID
+                                    "hsapiens_homolog_associated_gene_name", #Mouse gene name
+                                    "hsapiens_homolog_goc_score", # Mouse Gene-order conservation score
+                                    "hsapiens_homolog_orthology_confidence" #Mouse orthology confidence [0 low, 1 high
+                                    ),
+      filters = "ensembl_gene_id",
+      values = mouse_query_gen$ensembl_gene_id,
+      mart = mouse_ensembl)
+
+
+
+human_query_gen <- getBM(attributes = c("ensembl_gene_id", 
+                                    "hgnc_symbol", 
+                                    "description", 
+                                    "gene_biotype",
+                                    "mirbase_id",
+                                    "mirbase_accession"
+                                    # "mmusculus_homolog_ensembl_gene", #Mouse gene stable ID
+                                    # "mmusculus_homolog_associated_gene_name", #Mouse gene name
+                                    # "mmusculus_homolog_goc_score", # Mouse Gene-order conservation score
+                                    # "mmusculus_homolog_orthology_confidence" #Mouse orthology confidence [0 low, 1 high]
+                                    ),
+      filters = "mirbase_id",
+      values = names(NL20_counts),
+      mart = human_ensembl)
+
+human_query_mir <- getBM(attributes = c("ensembl_gene_id", 
+                                    "mmusculus_homolog_ensembl_gene", #Mouse gene stable ID
+                                    "mmusculus_homolog_associated_gene_name", #Mouse gene name
+                                    "mmusculus_homolog_goc_score", # Mouse Gene-order conservation score
+                                    "mmusculus_homolog_orthology_confidence" #Mouse orthology confidence [0 low, 1 high
+                                    ),
+      filters = "ensembl_gene_id",
+      values = human_query_gen$ensembl_gene_id,
+      mart = human_ensembl)
+
+
+
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

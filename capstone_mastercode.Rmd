@@ -1,5 +1,5 @@
 ---
-title: "Capstone"
+title: "Capstone - Kidney"
 output: html_notebook
 ---
 
@@ -36,6 +36,10 @@ featureCounts -t miRNA -g ID -F GFF -a /home/marianaurera/capstone/hsa.gff3 -T 4
 grep -w "miRNA" Homo_sapiens.GRCh38.108.chr.gtf > Homo_sapiens.GRCh38.108.miRNA.gtf 
 featureCounts -t exon -g gene_id -a /home/marianaurera/capstone/Homo_sapiens.GRCh38.108.miRNA.gtf -T 4 -s 1 -o /home/marianaurera/capstone/aligned/kidney_counts_newtry_classgtf.txt RXF393_1_sorted.bam RXF393_2_sorted.bam SKRC39_1_sorted.bam SKRC39_2_sorted.bam # quantifying featureCounts
 
+
+# checking filestats
+samtools flagstat test_sorted.bam
+
 ```
 
 
@@ -47,6 +51,8 @@ featureCounts -t exon -g gene_id -a /home/marianaurera/capstone/Homo_sapiens.GRC
 ## loading in libraries
 library(biomaRt)
 library(GenomicFeatures) #For genome annotations, GTF files
+library(ggpubr)
+
 
 experimental.metadata = data.frame(samplename = c("RXF393_1",
                                                   "RXF393_2",
@@ -65,10 +71,12 @@ experimental.metadata = data.frame(samplename = c("RXF393_1",
                                                  "LC",
                                                  "LC"))
 experimental.metadata$condition = factor(experimental.metadata$condition,
-                             levels=c("KC", "KNC", "LNC", "LC"))
+                             levels=c("KNC", "KC", "LNC", "LC"))
 experimental.md.kidney = experimental.metadata[c(1:4),]
+# experimental.md.kidney$condition = factor(experimental.md.kidney$condition,
+#                              levels=c("KC", "KNC"))
 experimental.md.kidney$condition = factor(experimental.md.kidney$condition,
-                             levels=c("KC", "KNC"))
+                             levels=c("KNC", "KC"))
 # KC: Kidney Cachectic; KNC: Kidney Non-cachectic; LNC: Lung Non-cachectic; LC: Lung cachectic
 
 
@@ -126,37 +134,45 @@ summary(colSums(kidney_read_counts))
 # condition because they have a lesser read depth compared to KC condition. 
 summary(kidney_read_counts)
 
-# miRNAs detected 
-sample_detect <- c(sum(sapply(kidney_read_counts[,c(1)], function(row) all(row > 0 ))), #RXF 1 -> 506,
-                    sum(sapply(kidney_read_counts[,c(2)], function(row) all(row > 0 ))), #RXF 2 -> 526
-                    sum(sapply(kidney_read_counts[,c(3)], function(row) all(row > 0 ))), #SKR 1 -> 284
-                    sum(sapply(kidney_read_counts[,c(4)], function(row) all(row > 0 ))) #SKR 2 -> 303
-                    )
-barplot(sample_detect, 
-        names = experimental.md.kidney$samplename,
-        main = "Number of miRNAs detected in each sample",
-        xlab = "Sample Name",
-        ylab = "Number of miRNAs",
-        ylim = c(0, 600))
-condition_detect <- c(sum(apply(kidney_read_counts[,c(1,2)], 1, function(row) all(row > 0 ))), #RXF
-                      sum(apply(kidney_read_counts[,c(3,4)], 1, function(row) all(row > 0 ))) #SKR
-                      )
-barplot(condition_detect, 
-        names = c("Cachectic", "Non-Cachectic"),
-        main = "Number of miRNAs detected in all samples per condition (Kidney Model)",
-        xlab = "Condition",
-        ylab = "Number of miRNAs",
-        ylim = c(0, 450))
-
-condition_detect_any <- c(sum(apply(kidney_read_counts[,c(1,2)], 1, function(row) any(row > 0 ))), #RXF --> 624
-                      sum(apply(kidney_read_counts[,c(3,4)], 1, function(row) any(row > 0 ))) #SKR
-                      )
-barplot(condition_detect_any, 
-        names = c("Cachectic", "Non-Cachectic"),
-        main = "Number of miRNAs detected in at least 1 sample per condition (Kidney Model)",
-        xlab = "Condition",
-        ylab = "Number of miRNAs",
-        ylim = c(0, 700))
+# # miRNAs detected 
+# # Detection
+# sample_detect <- c(sum(sapply(kidney_read_counts[,c(1)], function(row) all(row > 0 ))), #RXF 1 -> 506,
+#                     sum(sapply(kidney_read_counts[,c(2)], function(row) all(row > 0 ))), #RXF 2 -> 526
+#                     sum(sapply(kidney_read_counts[,c(3)], function(row) all(row > 0 ))), #SKR 1 -> 284
+#                     sum(sapply(kidney_read_counts[,c(4)], function(row) all(row > 0 ))) #SKR 2 -> 303
+#                     )
+# barplot(sample_detect, 
+#         names = experimental.md.kidney$samplename,
+#         xlab = "Sample Name",
+#         ylab = "Number of miRNAs",
+#         ylim = c(0, 600),
+#         col = c("#BC4B51", "#BC4B51", "#133C55", "#133C55"))
+# legend(x = "topright", y = NULL, legend = c("Cachectic", "Control"), col = c("#BC4B51", "#133C55"),
+#        pch = 15) 
+# 
+# 
+# condition_detect <- c(sum(apply(kidney_read_counts[,c(1,2)], 1, function(row) all(row > 0 ))), #RXF
+#                       sum(apply(kidney_read_counts[,c(3,4)], 1, function(row) all(row > 0 ))) #SKR
+#                       )
+# barplot(condition_detect, 
+#         names = c("Cachectic", "Non-Cachectic"),
+#         # main = "Number of miRNAs detected in all samples per condition (Kidney Model)",
+#         xlab = "Condition",
+#         ylab = "Number of miRNAs detected in all samples",
+#         ylim = c(0, 450),
+#         col = c("#BC4B51", "#133C55"))
+# 
+# 
+# condition_detect_any <- c(sum(apply(kidney_read_counts[,c(1,2)], 1, function(row) any(row > 0 ))), #RXF --> 624
+#                       sum(apply(kidney_read_counts[,c(3,4)], 1, function(row) any(row > 0 ))) #SKR
+#                       )
+# barplot(condition_detect_any, 
+#         names = c("Cachectic", "Non-Cachectic"),
+#         # main = "Number of miRNAs detected in at least 1 sample per condition (Kidney Model)",
+#         xlab = "Condition",
+#         ylab = "Number of miRNAs in at least 1 sample",
+#         ylim = c(0, 700),
+#          col = c("#BC4B51", "#133C55"))
 
 
 
@@ -178,9 +194,9 @@ percentVar <- pca$sdev^2/sum(pca$sdev^2)
 barplot(percentVar, names=1:length(percentVar), xlab="PC", ylab="% variation",  las=2, cex.names=0.8, ylim=c(0,0.9)) #% of variation accounted per PC
 
 #PC1: INTERPRETATION: This axis on the variation accounts for the condition difference.
-plotPCA(rld, intgroup = c( "condition")) #color by condition, put in a plot
+plotPCA(rld, intgroup = c( "condition"))  #color by condition, put in a plot
 data = plotPCA(rld, intgroup = c( "condition"), returnData=TRUE) 
-data 
+
 
 #PC2: INTERPRETATION: difference in reads between samples within conditions.
 plotPCA(rld, intgroup = c("samplename"))
@@ -220,9 +236,9 @@ par(mfrow=c(1,1))
 # the points are not as aligned to the center line. Moreover, the spread of this 
 # condition is much wider than RXF393. 
 
-sum(apply(dds_normalized, 1, function(x){ mean(x) >= 1 }))
+sum(apply(dds_normalized, 1, function(x){ mean(x) >= 1 })) #567 unique miRNAs
 
-# how many miRNAs detected per sample vs threshold
+# how many miRNAs detected per sample
 mirna_detected_samples <- data.frame(samplenames = experimental.md.kidney$samplename,
                                      detected_mirnas = rep(NA,
                                                            length(experimental.md.kidney$samplename)))
@@ -235,6 +251,57 @@ barplot(mirna_detected_samples$detected_mirnas,
         ylab = "Number of miRNAs detected",
         xlab = "Samples",
         ylim = c(0, 500))
+
+
+
+```
+
+
+```{r eval = FALSE}
+# miRNA-seq FIGURES QC section
+library(ggplot2)
+
+# Detection
+barplot(mirna_detected_samples$detected_mirnas, 
+        names = experimental.md.kidney$samplename,
+        xlab = "Sample Name",
+        ylab = "Number of miRNAs",
+        ylim = c(0, 500),
+        col = c("#BC4B51", "#BC4B51", "#133C55", "#133C55"))
+legend(x = "topright", y = NULL, legend = c("Cachectic", "Control"), col = c("#BC4B51", "#133C55"),
+       pch = 15) 
+
+# Read depth ?
+barplot(colSums(kidney_read_counts)/1000000, 
+        names = experimental.md.kidney$samplename,
+        xlab = "Sample Name",
+        ylab = "Number of Aligned Reads (10^6)",
+        ylim = c(0, 3),
+        col = c("#BC4B51", "#BC4B51", "#133C55", "#133C55"))
+legend(x = "topright", y = NULL, legend = c("Cachectic", "Control"), col = c("#BC4B51", "#133C55"),
+       pch = 15) 
+
+
+# PCA
+data = plotPCA(rld, intgroup = c( "condition"), returnData=TRUE) 
+ggplot(data, aes(PC1, PC2, colour=condition)) + 
+  geom_point(size = 4) +
+  scale_x_continuous(paste0("PC1: ", as.character(round(percentVar[1]*100, 0)),"% variance"), limits=c(-45, 45))  + 
+  scale_y_continuous(paste0("PC2: ",as.character(round(percentVar[2]*100, 0)),"% variance"), limits=c(-45, 45)) +
+  coord_fixed()  +
+  geom_text(data = data, aes(PC1,PC2, label = name), hjust = 1.2) +
+  scale_color_manual(values = c("firebrick", "navy"),
+                     labels = c("Control", "Cachectic"),
+                     name = "Condition")# CHANGE ACCORDINGLY
+
+# ggplot(data, mapping = aes(PC1, PC2)) + 
+#   geom_point(data = data, mapping = aes(PC1, PC2, colour = name)) +
+#   scale_colour_discrete(name = "Sample") +
+#   ylab("PC2 (30%)") + xlab("PC1 (51%)") # CHANGE ACCORDINGLY
+
+# MA plots
+MAplots_replicates(dds_normalized$RXF393_1, dds_normalized$RXF393_2, "RXF393_1", "RXF393_2")
+MAplots_replicates(dds_normalized$SKRC39_1, dds_normalized$SKRC39_2, "SKRC39_1", "SKRC39_2")
 
 
 
@@ -278,24 +345,24 @@ dds = dds[filter, ]
 
 dds <- estimateSizeFactors(dds) 
 dds <- estimateDispersions(dds)
+
 rld <- rlog(dds) #log data
 
 dds = nbinomLRT(dds, full= ~1 + condition, reduced = ~ 1 )
-results.lrt = results(dds)
+results.lrt = results(dds) #contrast = c("condition", "KC", "KNC")
 results.lrt
+
 sum(results.lrt$padj < 0.05, na.rm = T) #135 significantly different in expression between conditions
-sum(results.lrt$padj < 0.05 & results.lrt$log2FoldChange > 0, na.rm = T) # 34 upregulated miRNAs
-sum(results.lrt$padj < 0.05 & results.lrt$log2FoldChange < 0, na.rm = T) # 101 upregulated miRNAs
+sum(results.lrt$padj < 0.05 & results.lrt$log2FoldChange > 0, na.rm = T) # 101 upregulated miRNAs (NOT 34)
+sum(results.lrt$padj < 0.05 & results.lrt$log2FoldChange < 0, na.rm = T) # 34 upregulated miRNAs (101)
 
 ## Comparing Cachectic vs. Non-cachectic (in Kidney model)
 KC_vs_KNC = results(dds, contrast=c("condition", "KC", "KNC"), independentFiltering = TRUE, alpha=0.05, test="Wald")
 KC_vs_KNC <- lfcShrink(dds=dds, contrast=c("condition", "KC", "KNC"), type="ashr") #ratio: KC/KNC
 hist(KC_vs_KNC$pvalue, xlab="pvalue", main="KC vs KNC") 
-sum(KC_vs_KNC$padj < 0.05 & KC_vs_KNC$log2FoldChange > 0, na.rm = T) # ?? WHY IS IT 101 ??
+sum(KC_vs_KNC$padj < 0.05 & KC_vs_KNC$log2FoldChange > 0, na.rm = T) # 101 upregulated
 
-#This volcano plot shows that the significantly different genes have large fold changes. 
-#The wide dispersion suggests a high difference of gene expression 
-#between embryonic stem cells and cortical neurons. 
+#Volcano plot
 plot(KC_vs_KNC$log2FoldChange, 
      -log10(KC_vs_KNC$padj), pch=19, ylim=c(0,6), 
      col = alpha("grey", 0.8), xlim=c(-8, 8),
@@ -316,13 +383,14 @@ plotMA(KC_vs_KNC, ylim=c(-30,30),  main = "KC vs. KNC")
 de_mirna = results.lrt[!is.na(results.lrt$padj) & results.lrt$padj<0.05, ]
 de_mirna
 
-sum(de_mirna$log2FoldChange > 0) #34 upregulated
-sum(de_mirna$log2FoldChange > log2(1.5))# 34, number of miRNA upregulated in Cachexia
-sum(de_mirna$log2FoldChange > log2(2))# 34, number of miRNA upregulated in Cachexia
+sum(de_mirna$log2FoldChange > 0) #101 upregulated (NOT 34)
+sum(de_mirna$log2FoldChange > log2(1.5))# 101, number of miRNA upregulated in Cachexia (NOT 34)
+sum(de_mirna$log2FoldChange > log2(2))# 101, number of miRNA upregulated in Cachexia (NOT 34)
 
 
 
 ```
+
 
 #### Heatmap
 
@@ -334,8 +402,8 @@ library("grid")
 library(cluster)
 
 significant_results = results.lrt[!is.na(results.lrt$padj) & results.lrt$padj<0.05, ]
-sum(significant_results$log2FoldChange > 0) # 34 upregulated
-sum(significant_results$log2FoldChange < 0) # 101 downregulated
+sum(significant_results$log2FoldChange > 0) # 101 upregulated (NOT 34)
+sum(significant_results$log2FoldChange < 0) # 34 downregulated (NOT 101)
 rld_signif = assay(rld)[rownames(significant_results),]
 rld_z = t(apply(rld_signif, 1, function(x){ (x - mean(x)) / sd(x)})) # converting to zscore --> to scale
 
@@ -356,8 +424,41 @@ grid.newpage()
 grid.draw(heat.map$gtable)
 
 
+# pheatmap(rld_z[c("MIMAT0000076", "MIMAT0000092"),], cluster_col=F, breaks=breaksList, 
+#                      cluster_rows=F, show_rownames=T,color = color,
+#                      fontsize_row = 3, legend=TRUE,border_color = NA)
 
 ```
+
+
+```{r eval = False}
+# miRNA-seq Analysis Figures - DE
+
+# volcano plot
+d = as.data.frame(KC_vs_KNC)
+d$color = ifelse(-log10(KC_vs_KNC$padj) > -log10(0.05) & KC_vs_KNC$log2FoldChange > 0,  "up", ifelse(-log10(KC_vs_KNC$padj) > -log10(0.05) & KC_vs_KNC$log2FoldChange < 0,  "down", "not_sig"))
+ggplot(data = d) + 
+  geom_point(mapping = aes(x = log2FoldChange, y = -log10(padj), color = color)) + 
+  scale_x_continuous(name = "Log2FoldChange", limits = c(-8,8)) + 
+  scale_y_continuous(name = "-Log10 Adjusted p-value") + 
+  scale_color_manual(name = NULL, labels = c("Downregulated", "Not Significant", "Upregulated"),
+                     values = c("up" = "firebrick", "down" = "navy", "not_sig" = "gray"))
+
+# MA plot 
+plotMA(KC_vs_KNC, ylim=c(-30,30))
+
+# heatmap
+colnames(results.coef) = c("RXF393_1_Cachectic", "RXF393_2_Cachectic",
+                           "SKRC39_1_Control", "SKRC39_2_Control")
+heat.map <- pheatmap(results.coef, cluster_col=T, breaks=breaksList, 
+                     cluster_rows=F, show_rownames=F,color = color,
+                     fontsize_row = 3, legend=TRUE,border_color = NA)
+
+
+
+
+```
+
 
 
 
@@ -370,16 +471,16 @@ library(miRBaseConverter)
 
 de_mirna_df = as.data.frame(de_mirna)
 de_mirna_df[,c(7,8)] = miRNA_AccessionToName(rownames(de_mirna_df))
-colnames(de_mirna_df) = c(colnames(de_mirna_df)[1:6], "accession", "miRNA")
-de_mirna_targets = unique(merge(de_mirna_df, ts_humans, by = "miRNA"))
-de_mirna_up_targets = de_mirna_targets[de_mirna_df$log2FoldChange > 0, ] # just getting upregulated miRNAs (their genes go down)
-de_mirna_down_targets = de_mirna_targets[de_mirna_df$log2FoldChange < 0, ] # just getting downregulated miRNAs (their genes go up)
+colnames(de_mirna_df) = c(colnames(de_mirna_df)[1:6], "accession", "miRNA") # 135 miRNAs
+de_mirna_targets = unique(merge(de_mirna_df, ts_humans, by = "miRNA")) # 52 miRNAs
+de_mirna_up_targets = de_mirna_targets[de_mirna_targets$log2FoldChange > 0, ] # just getting upregulated miRNAs (their genes go down) --> 40 upregulated miRNAs with gene targets
+de_mirna_down_targets = de_mirna_targets[de_mirna_targets$log2FoldChange < 0, ] # just getting downregulated miRNAs (their genes go up)  --> 12 downregulated miRNAs
 
 nrow(de_mirna_up_targets) + nrow(de_mirna_down_targets) == nrow(de_mirna_targets)
 
 max(table(de_mirna_up_targets$Gene.ID))
-length(unique(de_mirna_up_targets$Gene.ID)) # 4833 gene targets based on symbol, 4854 targets based on geneID
-length(unique(de_mirna_down_targets$Gene.ID)) # XXX gene targets based on symbol, 8062 targets based on geneID
+length(unique(de_mirna_up_targets$Gene.Symbol)) # 8221 gene targets based on symbol, 8223 targets based on geneID
+length(unique(de_mirna_down_targets$Gene.Symbol)) # 3862 gene targets based on symbol, 3863 targets based on geneID
 
 hist(de_mirna_up_targets$weighted.context...score)
 
@@ -401,15 +502,15 @@ plot(seq(0, -1, -0.1), context_score_cutoff_up)
 microarray_genes = read.csv("de_genes_microarray.csv") #DE genes from microarray data
 
 de_mirna_targets_filtered = de_mirna_targets[de_mirna_targets$Gene.Symbol %in% microarray_genes$Symbol,]
-nrow(de_mirna_targets_filtered) # 3070
+length(unique(de_mirna_targets_filtered$Gene.Symbol)) # 792 unique genes (from 1655)
 
 length(unique(de_mirna_targets_filtered$miRNA)) # 52 TOTAL miRNAs 
-length(unique(de_mirna_targets_filtered$miRNA[de_mirna_targets_filtered$log2FoldChange > 0])) # 12 upregulated miRNAs of 22 
-length(unique(de_mirna_targets_filtered$miRNA[de_mirna_targets_filtered$log2FoldChange < 0])) # 40 downregulated miRNAs of 101
+length(unique(de_mirna_targets_filtered$miRNA[de_mirna_targets_filtered$log2FoldChange > 0])) # 40 upregulated miRNAs of 101 
+length(unique(de_mirna_targets_filtered$miRNA[de_mirna_targets_filtered$log2FoldChange < 0])) # 12 downregulated miRNAs of 34
 
 length(unique(de_mirna_targets_filtered$Gene.Symbol)) # 792 TOTAL gene targets
-length(unique(de_mirna_targets_filtered$Gene.Symbol[de_mirna_targets_filtered$log2FoldChange > 0])) # 340 genes targetted by UPregulated miRNAs
-length(unique(de_mirna_targets_filtered$Gene.Symbol[de_mirna_targets_filtered$log2FoldChange < 0])) # 719 genes targetted by UPregulated miRNAs
+length(unique(de_mirna_targets_filtered$Gene.Symbol[de_mirna_targets_filtered$log2FoldChange > 0])) # 719 genes targetted by UPregulated miRNAs
+length(unique(de_mirna_targets_filtered$Gene.Symbol[de_mirna_targets_filtered$log2FoldChange < 0])) # 340 genes targetted by UPregulated miRNAs
 
 ## Checking distribution of targets for each miRNA
 # upregulated miRNAs
@@ -430,17 +531,36 @@ barplot(table(de_mirna_targets_filtered$miRNA[de_mirna_targets_filtered$log2Fold
         xlab = "miRNAs")
 
 # Checking if all gene targetes of upregulated miRNAs are DOWNregulated in microarray data
-sum(unique(de_mirna_targets_filtered$Gene.Symbol[de_mirna_targets_filtered$log2FoldChange > 0]) %in% microarray_genes$Symbol[microarray_genes$logFC < 0]) # 177 downregulated genes targetted by 12 upregulated miRNAs (out of 340 gene targets)
+sum(unique(de_mirna_targets_filtered$Gene.Symbol[de_mirna_targets_filtered$log2FoldChange > 0]) %in% microarray_genes$Symbol[microarray_genes$logFC < 0]) # 391 downregulated genes targetted by 40 upregulated miRNAs (out of 719 gene targets)
 de_mirna_up_targets_filtered = de_mirna_targets_filtered[de_mirna_targets_filtered$log2FoldChange > 0 & de_mirna_targets_filtered$Gene.Symbol %in% microarray_genes$Symbol[microarray_genes$logFC < 0],]
-length(unique(de_mirna_up_targets_filtered$Gene.Symbol)) # 177
+length(unique(de_mirna_up_targets_filtered$miRNA)) # 391
 
-sum(unique(de_mirna_targets_filtered$Gene.Symbol[de_mirna_targets_filtered$log2FoldChange < 0]) %in% microarray_genes$Symbol[microarray_genes$logFC > 0]) # 328 upregulated genes targetted by 40 downregulated miRNAs (out of 719 gene targets)
+sum(unique(de_mirna_targets_filtered$Gene.Symbol[de_mirna_targets_filtered$log2FoldChange < 0]) %in% microarray_genes$Symbol[microarray_genes$logFC > 0]) # 163 upregulated genes targetted by 12 downregulated miRNAs (out of 340 gene targets)
 de_mirna_down_targets_filtered = de_mirna_targets_filtered[de_mirna_targets_filtered$log2FoldChange < 0 & de_mirna_targets_filtered$Gene.Symbol %in% microarray_genes$Symbol[microarray_genes$logFC > 0],]
-length(unique(de_mirna_down_targets_filtered$Gene.Symbol)) # 328
+length(unique(de_mirna_down_targets_filtered$miRNA)) # 11
 
 
 
 table(table(de_mirna_targets_filtered$miRNA))
+
+
+# ALL
+
+de_mirna_targets_filtered <- rbind(de_mirna_down_targets_filtered, de_mirna_up_targets_filtered)
+colnames(de_mirna_targets_filtered) <- c("miRNA", "miR_baseMean", "miR_L2FC", "miR_lfcSE",
+                                    "miR_stat", "miR_pval", "miR_padj", "miR_accession", "Ensembl_ID", "Gene_Symbol",
+                                    "Transcript_ID", "Weighted_Context_Score")
+de_mirna_targets_filtered <- merge(de_mirna_targets_filtered, microarray_genes,  by.x = "Gene_Symbol", by.y = "Symbol")
+de_mirna_targets_filtered <- de_mirna_targets_filtered[,-13] # removing redundant Array Address ID
+colnames(de_mirna_targets_filtered)[13:20] <- c("micro_Probe_ID", "micro_Array_Address_ID", "micro_LFC", "micro_AveExpr", "micro_t", "micro_pval", "micro_padj", "micro_B")
+
+ggplot(de_mirna_targets_filtered,
+       aes(x = Weighted_Context_Score, y = micro_LFC )) +#, color = Gene_Symbol)) + 
+  geom_point() + 
+  # scale_color_manual(name = "Gene Symbol", values = rainbow(length(unique(interesting_genes_up$Gene_Symbol)))) + 
+  xlab("Weighted Context Score") + 
+  ylab("Log2FoldChange")
+
 
 
 ```
@@ -451,14 +571,11 @@ table(table(de_mirna_targets_filtered$miRNA))
 
 
 ## loading in libraries
-library(pheatmap)
 library("grid")
 # library("gridExtra")
 library(cluster)
 library(clusterProfiler)
 library(org.Hs.eg.db)
-library(miRBaseConverter)
-library(gprofiler2) # ID converter
 library(biomaRt)
 
 
@@ -469,12 +586,12 @@ length(unique(expressed_microarray_genes$Symbol)) #14428
 #          target="ENSG", mthreshold = Inf, filter_na = F)$target
 # expressed_microarray_genes_ensembl = gconvert(query = expressed_microarray_genes$Symbol, organism = "hsapiens",
 #          target="ENSG", mthreshold = Inf, filter_na = F) #only 72% of ALL expressed genes match to an ensembl id
-ensembl <- useEnsembl(biomart = "genes", dataset = "hsapiens_gene_ensembl")
-human_query <- getBM(attributes = c("ensembl_gene_id", "hgnc_symbol", "description"),
-      filters = "hgnc_symbol",
-      values = expressed_microarray_genes$Symbol,
-      mart = ensembl)
-length(unique(human_query$hgnc_symbol))# 9983 genes --> only 70% map to a ensembl id
+# ensembl <- useEnsembl(biomart = "genes", dataset = "hsapiens_gene_ensembl")
+# human_query <- getBM(attributes = c("ensembl_gene_id", "hgnc_symbol", "description"),
+#       filters = "hgnc_symbol",
+#       values = expressed_microarray_genes$Symbol,
+#       mart = ensembl)
+# length(unique(human_query$hgnc_symbol))# 9983 genes --> only 70% map to a ensembl id
 
 
 
@@ -502,15 +619,15 @@ up_results_ensembl = c() # gene targets of upregulated miRNAs
     up_results_ensembl = c(up_results_ensembl, substring(de_mirna_up_targets_filtered$Gene.ID[i],1,15))
   }
 head(up_results_ensembl)
-length(unique(up_results_ensembl)) # 177
+length(unique(up_results_ensembl)) # 391 (not 177)
 
 down_results_ensembl = c() # gene targets of downregulated miRNAs
   for (i in seq(length(de_mirna_down_targets_filtered$Gene.ID))){
     down_results_ensembl = c(down_results_ensembl, substring(de_mirna_down_targets_filtered$Gene.ID[i],1,15))
   }
 head(down_results_ensembl)
-length(unique(down_results_ensembl)) # 329
-length(unique(de_mirna_down_targets_filtered$Gene.Symbol)) #328
+length(unique(down_results_ensembl)) # 163 (NOT 329)
+length(unique(de_mirna_down_targets_filtered$Gene.Symbol)) #163 (NOT 328)
 
 expressed_genes_w_mirna_ensembl = c() # all expressed genes WITH a miRNA
 for (i in seq(length(expressed_genes_w_mirna$Gene.ID))){
@@ -527,50 +644,43 @@ head(expressed_genes_w_mirna_ensembl)
                   ont           = "ALL",
                   pAdjustMethod = "BH", #correct for multi testing
                   pvalueCutoff  = 1,
-                  qvalueCutoff  = 0.1,  #0.1, #FDR
+                  qvalueCutoff  = 1,  #0.1, #FDR
                   readable      = TRUE)
 
  head(ego_up)
- dotplot(ego_up)
- ego_up_df = as.data.frame(ego_up)
+dotplot(ego_up,
+        showCategory = 12,
+        font.size = 10) 
+ego_up_df = as.data.frame(ego_up)
  
  # getting gene targets with interesting descriptions
  ego_up_df$Description
- ego_up_interesting_desc = c("skeletal muscle cell proliferation", "muscle organ development", "regulation of skeletal muscle cell proliferation", "muscle structure development", "collagen fibril organization", "regulation of fibroblast proliferation", "myoblast proliferation", "cartilage development involved in endochondral bone morphogenesis")
+ ego_up_interesting_desc = c("myoblast proliferation", "cartilage development involved in endochondral bone morphogenesis")
  interesting_genes_up = ego_up_df[ego_up_df$Description %in% ego_up_interesting_desc,]
 interesting_genes_up = separate_longer_delim(interesting_genes_up, "geneID", delim = "/")
 interesting_genes_up = merge(interesting_genes_up, de_mirna_up_targets_filtered,  by.x = "geneID", by.y = "Gene.Symbol")
-table(interesting_genes_up$miRNA) # 9 miRNAs: hsa-miR-100-5p hsa-miR-149-5p hsa-miR-150-5p hsa-miR-204-5p hsa-miR-222-3p hsa-miR-29b-3p hsa-miR-328-3p hsa-miR-92a-3p hsa-miR-92b-3p 
 colnames(interesting_genes_up) <- c("Gene_Symbol", "ONTOLOGY", "Ontology ID", "GO_description", "GO_GeneRatio", "GO_BgRatio", "GO_pvalue",
                                     "GO_p.adjust", "GO_qvalue", "GO_count", "miRNA", "miR_baseMean", "miR_L2FC", "miR_lfcSE",
                                     "miR_stat", "miR_pval", "miR_padj", "miR_accession", "Ensembl_ID", "Transcript_ID", "Weighted_Context_Score")
 interesting_genes_up <- merge(interesting_genes_up, microarray_genes,  by.x = "Gene_Symbol", by.y = "Symbol")
 interesting_genes_up <- interesting_genes_up[,-22] # removing redundant Array Address ID
 colnames(interesting_genes_up)[22:29] <- c("micro_Probe_ID", "micro_Array_Address_ID", "micro_LFC", "micro_AveExpr", "micro_t", "micro_pval", "micro_padj", "micro_B")
-#Distribution of weighted context scores of above miRNAs
-boxplot(interesting_genes_up$Weighted_Context_Score ~ interesting_genes_up$miRNA,
-        las = 2,
-        ylab = "Weighted Context Score of Gene Target",
-        xlab = "miRNA",
-        main = "Distribution of Weighted Context Score per miRNA")
-#Distribution of LFC of expression of gene targets of above miRNAs
-boxplot(interesting_genes_up$micro_LFC ~ interesting_genes_up$miRNA,
-        las = 2,
-        ylab = "Log Fold Change of Target Genes Expression",
-        xlab = "miRNA",
-        main = "Distribution of LFC of Gene Targets per miRNA")
-plot(interesting_genes_up$Weighted_Context_Score,
-     interesting_genes_up$micro_LFC,
-     ylim = c(-2,0),
-     xlim = c(-0.7,0),
-     ylab = "Log Fold Change of Target Gene Expression",
-     xlab = "Weighted Context Score of Target Genes")
+length(unique(interesting_genes_up$miRNA))# 22 miRNAs
+table(interesting_genes_up$miRNA)
+unique(interesting_genes_up$Gene_Symbol) # 11 genes:  "EXT1"     "FES"      "PPARD"    "RARA"     "RARB"     "SERPINH1" "SIX1"     "SRC"      "STC1"     "TSKU"     "ZNF609"
+table(interesting_genes_up$Gene_Symbol)
 
 
-# interesting_genes_up_filtered = interesting_genes_up[interesting_genes_up$weighted.context...score <= -0.4 & 
+# filtering by change in target gene expression (including those with biological significance)
+interesting_genes_up_filtered = interesting_genes_up[interesting_genes_up$micro_LFC <= -log2(1.5) |
+                                                       interesting_genes_up$Gene_Symbol %in% c("PPARD", "SERPINH1", "SIX1"),] 
+# interesting_genes_up_filtered = interesting_genes_up[interesting_genes_up$weighted.context...score <= -0.4 &
 #                                               interesting_genes_up$log2FoldChange >= log2(2),] # LFC and context score filter
-# table(interesting_genes_up_filtered$miRNA) #3 miRNAs: hsa-miR-149-5p, hsa-miR-204-5p, hsa-miR-29b-3p 
- 
+length(unique(interesting_genes_up_filtered$miRNA))# 20 miRNAs
+table(interesting_genes_up_filtered$miRNA)
+unique(interesting_genes_up_filtered$Gene_Symbol) # 8 genes:  "EXT1"   "RARA"   "RARB"   "STC1"   "ZNF609" + SIX1 + PPARD + SERPINH
+table(interesting_genes_up_filtered$Gene_Symbol)
+
  
  
 #GO ontology: does hypergeometric test -- Gene targets of DOWNREGULATED miRNAs
@@ -581,13 +691,364 @@ plot(interesting_genes_up$Weighted_Context_Score,
                   ont           = "ALL",
                   pAdjustMethod = "BH", #correct for multi testing
                   pvalueCutoff  = 1,
-                  qvalueCutoff  = 0.1,  #FDR
+                  qvalueCutoff  = 1,  #FDR
                   readable      = TRUE)
 
- head(ego_down) # NOTE: down are not enriched for anything
+ head(ego_down, n = 10) # NOTE: down are not enriched for anything (based on padj and q value) --> show only top 10 based on p value
+  dotplot(ego_down)
+  ego_down_df = as.data.frame(ego_down)
+  interesting_genes_down = ego_down_df[c(1:10),]
+interesting_genes_down = separate_longer_delim(interesting_genes_down, "geneID", delim = "/")
+interesting_genes_down = merge(interesting_genes_down, de_mirna_down_targets_filtered,  by.x = "geneID", by.y = "Gene.Symbol")
+colnames(interesting_genes_down) <- c("Gene_Symbol", "ONTOLOGY", "Ontology ID", "GO_description", "GO_GeneRatio", "GO_BgRatio", "GO_pvalue",
+                                    "GO_p.adjust", "GO_qvalue", "GO_count", "miRNA", "miR_baseMean", "miR_L2FC", "miR_lfcSE",
+                                    "miR_stat", "miR_pval", "miR_padj", "miR_accession", "Ensembl_ID", "Transcript_ID", "Weighted_Context_Score")
+interesting_genes_down <- merge(interesting_genes_down, microarray_genes,  by.x = "Gene_Symbol", by.y = "Symbol")
+interesting_genes_down <- interesting_genes_down[,-22] # removing redundant Array Address ID
+colnames(interesting_genes_down)[22:29] <- c("micro_Probe_ID", "micro_Array_Address_ID", "micro_LFC", "micro_AveExpr", "micro_t", "micro_pval", "micro_padj", "micro_B")
+length(unique(interesting_genes_down$miRNA))# 11 miRNAs
+length(unique(interesting_genes_down$Gene_Symbol)) #38 genes
+
+```
+
+
+
+# ZNF609
+```{r}
+
+#TO DO: what miRNAs target ZNF609, what do genes do these miRNAs target, are these gene targets sequestered by ZNF609
+
+znf609 = de_mirna_targets[de_mirna_targets$Gene.Symbol =="ZNF609",] # getting miRNAs that target ZNF609
+unique(znf609$miRNA) # 9 DE miRNAs map to ZNF609: "hsa-miR-1271-5p" "hsa-miR-130b-3p" "hsa-miR-138-5p"  "hsa-miR-29b-3p"  "hsa-miR-330-5p"  "hsa-miR-424-5p" "hsa-miR-454-3p"  "hsa-miR-495-3p"  "hsa-miR-582-5p" 
+
+znf609 = de_mirna_targets[de_mirna_targets$miRNA %in% unique(znf609$miRNA),] # getting all target genes of miRNAs that also target ZNF609
+znf609 = merge(znf609, microarray_genes, by.x = "Gene.Symbol", by.y = "Symbol")
+length(unique(znf609$Gene.Symbol)) # 470 unique genes differentially expressed in muscles are also targetted by these 9 miRNAs including ZNF609
+table(znf609$miRNA)
+
+unique(znf609$logFC[znf609$Gene.Symbol == "ZNF609"]) # ZNF609 has an LFC of  -0.6090932 meaning it is going down, so genes that are sequestered by miRNAs that it targets should go DOWN --> down ZNF609 = UP miRNAs = DOWN targets
+length(unique(znf609$Gene.Symbol[znf609$logFC < 0])) # 253 unique genes 
+
+znf609_down_ensembl = c() # gene targets of upregulated miRNAs
+  for (i in znf609$Gene.ID[znf609$logFC < 0]){
+    znf609_down_ensembl = c(znf609_down_ensembl, substring(i,1,15))
+  }
+head(znf609_down_ensembl)
+length(unique(znf609_down_ensembl)) # 253
+
+ego_znf609 <- enrichGO(gene       = znf609_down_ensembl, #gene targets of upregulated miRNAs
+                  universe      = expressed_genes_w_mirna_ensembl, #all expressed genes with a miRNA
+                  OrgDb         = org.Hs.eg.db, #human
+                  keyType       = 'ENSEMBL', #annotations
+                  ont           = "ALL",
+                  pAdjustMethod = "BH", #correct for multi testing
+                  pvalueCutoff  = 1,
+                  qvalueCutoff  = 1,  #0.1, #FDR
+                  readable      = TRUE)
+
+head(ego_znf609)
+dotplot(ego_znf609)
+
+
+```
+
+
+```{r eval = FALSE}
+
+## full excel sheet with ALL miRNAs with filters on interesting terms
   
+# sheet 1: DE results of miRNAs (LFC, p-value, UP/DOWN)
+# de_mirna_df_export = de_mirna_df[,c(7,8, 2, 6)]
+# de_mirna_df_export$change = ifelse(de_mirna_df_export$log2FoldChange > 0, "UPregulated", "DOWNregulated")
+
+# ALL miRNAs
+results.lrt.export = as.data.frame(results.lrt, row.names = NULL)
+results.lrt.export = results.lrt.export[,c(2,6)]
+results.lrt.export[,c(3,4)] = miRNA_AccessionToName(rownames(results.lrt.export))
+colnames(results.lrt.export) = c(colnames(results.lrt.export)[1:2], "accession", "miRNA") # 135 miRNAs
+results.lrt.export = results.lrt.export[,c(3:4,1:2)]
+row.names(results.lrt.export) = seq(nrow(results.lrt.export))
+sum(results.lrt.export$padj < 0.05 & results.lrt.export$log2FoldChange > 0) # 101 upregulated
+sum(results.lrt.export$padj < 0.05 & results.lrt.export$log2FoldChange < 0) # 34 upregulated
+results.lrt.export$change = ifelse(results.lrt.export$padj < 0.05 
+                                   & results.lrt.export$log2FoldChange > 0, "UPregulated",
+                                   ifelse(results.lrt.export$padj < 0.05 
+                                   & results.lrt.export$log2FoldChange < 0, "DOWNregulated",
+                                   "not significant"))
+write.csv(results.lrt.export, "all_miRNA_results.csv")
+
+# Sheet 2: DE results of microarray (LFC, p-value, UP/DOWN)
+microarray_genes_export = microarray_genes[,c(4, 5, 9)]
+microarray_genes_export$change = ifelse(microarray_genes_export$logFC > 0, "UPregulated", "DOWNregulated")
+
+# Sheet 3: all miRNAs - microarray (without ANY filters)
+de_mirna_targets_filtered_export = de_mirna_targets_filtered[,c(2,9,1,10,12,4,8,15,19)]
+de_mirna_targets_filtered_export$GO_Description = rep(NA, nrow(de_mirna_targets_filtered_export))
+de_mirna_targets_filtered_export$GO_qval = rep(NA, nrow(de_mirna_targets_filtered_export))
+
+ego_up_df_sep =  separate_longer_delim(ego_up_df, "geneID", delim = "/")
+ego_down_df_sep =  separate_longer_delim(ego_down_df, "geneID", delim = "/")
+for (i in seq(nrow(de_mirna_targets_filtered_export))) {
+  if (de_mirna_targets_filtered_export$micro_LFC[i] < 0){
+    de_mirna_targets_filtered_export$GO_Description[i] = paste(ego_up_df_sep$Description[ego_up_df_sep$geneID == de_mirna_targets_filtered_export$Gene_Symbol[i]], sep = "_", collapse = "_")
+  } else if (de_mirna_targets_filtered_export$micro_LFC[i] > 0){
+      de_mirna_targets_filtered_export$GO_Description[i] = paste(ego_down_df_sep$Description[ego_down_df_sep$geneID == de_mirna_targets_filtered_export$Gene_Symbol[i]], sep = "_", collapse = "_")
+  }
+
+}
+
+de_mirna_targets_filtered_export = separate_longer_delim(de_mirna_targets_filtered_export,  "GO_Description", delim ="_")
+
+for (i in seq(nrow(de_mirna_targets_filtered_export))) {
+  if (de_mirna_targets_filtered_export$GO_Description[i] == ""){
+    next
+  }
+  
+  if (de_mirna_targets_filtered_export$micro_LFC[i] < 0){
+    de_mirna_targets_filtered_export$GO_qval[i] = ego_up_df$qvalue[ego_up_df$Description == de_mirna_targets_filtered_export$GO_Description[i]]
+  } else if (de_mirna_targets_filtered_export$micro_LFC[i] > 0){
+      de_mirna_targets_filtered_export$GO_qval[i] =ego_down_df$qvalue[ego_down_df$Description == de_mirna_targets_filtered_export$GO_Description[i]]
+  }
+}
+
+
+de_mirna_targets_filtered_export$miRNA_change = ifelse(de_mirna_targets_filtered_export$miR_L2FC > 0, "UPregulated", "DOWNregulated")
+de_mirna_targets_filtered_export$gene_change = ifelse(de_mirna_targets_filtered_export$micro_LFC > 0, "UPregulated", "DOWNregulated")
+length(unique(de_mirna_targets_filtered_export$miRNA)) # 51 miRNAs (1 downregulated miRNA is removed when considering the target gene expression)
+de_mirna_targets_filtered_export = de_mirna_targets_filtered_export[,c(1:7, 12, 8, 9, 13, 10, 11)]
+colnames(de_mirna_targets_filtered_export) <- c("miRNA", "miRNA_ID", "Gene_Symbol", 
+                                                "Ensembl_ID", "Weighted_Context_Score",
+                                                "miRNA_L2FC", "miRNA_padj", 
+                                                "miRNA_change", "gene_LFC",
+                                                "gene_padj", "gene_change", 
+                                                "gene_description", "gene_description_qval")
+# de_mirna_targets_filtered_export$ContextScore_Rank = rank(de_mirna_targets_filtered_export$Weighted_Context_Score)
+# de_mirna_targets_filtered_export$miRNA_Rank = rank(de_mirna_targets_filtered_export$miRNA_L2FC)
+# de_mirna_targets_filtered_export$Gene_Rank = rank(de_mirna_targets_filtered_export$gene_LFC)
+
+length(unique(de_mirna_targets_filtered_export$miRNA[de_mirna_targets_filtered_export$miRNA_L2FC > 0 &
+                                          de_mirna_targets_filtered_export$gene_LFC < 0])) # 40 upregulated miRNAs
+length(unique(de_mirna_targets_filtered_export$Gene_Symbol[de_mirna_targets_filtered_export$miRNA_L2FC > 0 &
+                                          de_mirna_targets_filtered_export$gene_LFC < 0])) # 391 downregulated genes targetted by upregulated miRNAs
+
+length(unique(de_mirna_targets_filtered_export$miRNA[de_mirna_targets_filtered_export$miRNA_L2FC < 0 &
+                                          de_mirna_targets_filtered_export$gene_LFC > 0])) # 11 downregulated miRNAs (1 is lost because target genes are not upregulated)
+length(unique(de_mirna_targets_filtered_export$Gene_Symbol[de_mirna_targets_filtered_export$miRNA_L2FC < 0 &
+                                          de_mirna_targets_filtered_export$gene_LFC > 0])) # 163 upreguated genes targetted by downregulated miRNAs
+
+library(openxlsx)
+
+# export_datasets <- list("DE_miRNA" = de_mirna_df_export, 
+#                          "DE_Genes" = microarray_genes_export,
+#                          "miRNA-Genes" = de_mirna_targets_filtered_export)
+export_datasets <- list("miRNA" = results.lrt.export,
+                         "DE_Genes" = # see microarray analysis rmd
+                         "miRNA-Genes" = de_mirna_targets_filtered_export)
+write.xlsx(export_datasets, file = "kidney_results.xlsx")
+
+
+
+
+# GO descriptions
+ego_up_df_export = ego_up_df[,c(3,8,9,10)]
+ego_down_df_export = ego_down_df[,c(3,8,9,10)]
+
+export_go_datasets <- list("UPregulated Target Genes" = ego_up_df_export,
+                         "DOWNregulated Target Genes" = ego_down_df_export)
+write.xlsx(export_go_datasets, file = "kidney_target_gene_GO_results.xlsx")
+
+```
+
+
+
+```{r eval = False}
+library(ggplot2)
+
+
+## UPREGULATED figures
+gene_lfc_up_plot <- ggplot(de_mirna_up_targets_filtered,
+       aes(x = "", y = micro_LFC)) + 
+  geom_boxplot(color = "darkred")  + 
+  ylab("Log2FoldChange of Target Genes") + 
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+
+mirna_lfc_up_plot <- ggplot(de_mirna_up_targets_filtered,
+       aes(x = "", y = miR_L2FC)) + 
+  geom_boxplot(color = "darkred")  + 
+  ylab("Log2FoldChange of miRNAs") + 
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+
+context_up_plot <- ggplot(de_mirna_up_targets_filtered,
+       aes(x = "", y = Weighted_Context_Score)) + 
+  geom_boxplot(color = "darkred")  + 
+  ylab("Weighted Context Score of Target Genes") + 
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+
+ggarrange(mirna_lfc_up_plot, gene_lfc_up_plot, context_up_plot, 
+          labels = c("A", "B", "C"),
+          ncol = 3, nrow = 1)
+
+# general plot - context score vs gene LFC
+colnames(de_mirna_up_targets_filtered) <- c("miRNA", "miR_baseMean", "miR_L2FC", "miR_lfcSE",
+                                    "miR_stat", "miR_pval", "miR_padj", "miR_accession", "Ensembl_ID", "Gene_Symbol",
+                                    "Transcript_ID", "Weighted_Context_Score")
+de_mirna_up_targets_filtered <- merge(de_mirna_up_targets_filtered, microarray_genes,  by.x = "Gene_Symbol", by.y = "Symbol")
+de_mirna_up_targets_filtered <- de_mirna_up_targets_filtered[,-13] # removing redundant Array Address ID
+colnames(de_mirna_up_targets_filtered)[13:20] <- c("micro_Probe_ID", "micro_Array_Address_ID", "micro_LFC", "micro_AveExpr", "micro_t", "micro_pval", "micro_padj", "micro_B")
+ggplot(de_mirna_up_targets_filtered,
+       aes(x = Weighted_Context_Score, y = micro_LFC)) + 
+  geom_point(colour = "firebrick") + 
+  xlab("Weighted Context Score") + 
+  ylab("Log2FoldChange")
+
+
+# enrichment analysis plot
 dotplot(ego_up,
-        title = "Gene Targets of Upregulated miRNAs")
+        showCategory = 12,
+        font.size = 10) 
+
+#Distribution of weighted context scores of above miRNAs
+ggplot(interesting_genes_up, aes(x = miRNA, y = Weighted_Context_Score)) +
+      geom_boxplot(outlier.shape = NA) +
+      geom_jitter(data = interesting_genes_up,  
+                  aes(x = miRNA, y = Weighted_Context_Score, colour = "red"),
+                  show.legend = F) +
+      theme(axis.text.x = element_text(angle = 90)) + 
+      scale_y_continuous(name = "Weighted Context Score") + 
+      scale_x_discrete(name = NULL)
+
+#Distribution of LFC of expression of gene targets of above miRNAs
+ggplot(interesting_genes_up, aes(x = miRNA, y = micro_LFC)) +
+      geom_boxplot(outlier.shape = NA) +
+      geom_jitter(data = interesting_genes_up,  
+                  aes(x = miRNA, y = micro_LFC, colour = "red"),
+                  show.legend = F) + 
+      theme(axis.text.x = element_text(angle = 90)) + 
+      scale_y_continuous(name = "Log2FoldChange in Gene Target Expression") + 
+      scale_x_discrete(name = NULL)
+
+
+ggplot(interesting_genes_up,
+       aes(x = Weighted_Context_Score, y = micro_LFC, color = Gene_Symbol)) + 
+  geom_point() + 
+  scale_color_manual(name = "Gene Symbol", values = rainbow(length(unique(interesting_genes_up$Gene_Symbol)))) + 
+  xlab("Weighted Context Score") + 
+  ylab("Log2FoldChange")
+  
+ggplot(interesting_genes_up,
+       aes(x = Weighted_Context_Score, y = micro_LFC, color = GO_description)) + 
+  geom_point() + 
+  scale_color_manual(name = "Description", values = c("red", "blue"),
+                     labels = c("Cartilage development \n involved in endochondral \n bone morphogenesis", 
+                                "myoblast proliferation")) + 
+  xlab("Weighted Context Score") + 
+  ylab("Log2FoldChange") 
+
+
+
+
+
+## Downregulated miRNAs FIGURES
+
+colnames(de_mirna_down_targets_filtered) <- c("miRNA", "miR_baseMean", "miR_L2FC", "miR_lfcSE",
+                                    "miR_stat", "miR_pval", "miR_padj", "miR_accession", "Ensembl_ID", "Gene_Symbol",
+                                    "Transcript_ID", "Weighted_Context_Score")
+de_mirna_down_targets_filtered <- merge(de_mirna_down_targets_filtered, microarray_genes,  by.x = "Gene_Symbol", by.y = "Symbol")
+de_mirna_down_targets_filtered <- de_mirna_down_targets_filtered[,-13] # removing redundant Array Address ID
+colnames(de_mirna_down_targets_filtered)[13:20] <- c("micro_Probe_ID", "micro_Array_Address_ID", "micro_LFC", "micro_AveExpr", "micro_t", "micro_pval", "micro_padj", "micro_B")
+ggplot(de_mirna_down_targets_filtered,
+       aes(x = Weighted_Context_Score, y = micro_LFC)) + 
+  geom_point(colour = "navy") + 
+  xlab("Weighted Context Score") + 
+  ylab("Log2FoldChange")
+
+gene_lfc_down_plot <- ggplot(de_mirna_down_targets_filtered,
+       aes(x = "", y = micro_LFC)) + 
+  geom_boxplot(color = "darkred")  + 
+  ylab("Log2FoldChange of Target Genes") + 
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+
+mirna_lfc_down_plot <- ggplot(de_mirna_down_targets_filtered,
+       aes(x = "", y = miR_L2FC)) + 
+  geom_boxplot(color = "darkred")  + 
+  ylab("Log2FoldChange of miRNAs") + 
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+
+context_down_plot <- ggplot(de_mirna_down_targets_filtered,
+       aes(x = "", y = Weighted_Context_Score)) + 
+  geom_boxplot(color = "darkred")  + 
+  ylab("Weighted Context Score of Target Genes") + 
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+
+ggarrange(mirna_lfc_down_plot, gene_lfc_down_plot, context_down_plot, 
+          labels = c("A", "B", "C"),
+          ncol = 3, nrow = 1)
+
+
+# enrichment analysis plot
+dotplot(ego_down) 
+
+#Distribution of weighted context scores of above miRNAs
+ggplot(interesting_genes_down, aes(x = miRNA, y = Weighted_Context_Score)) +
+      geom_boxplot(outlier.shape = NA) +
+      geom_jitter(data = interesting_genes_down,  
+                  aes(x = miRNA, y = Weighted_Context_Score),
+                  colour = "deepskyblue",
+                  show.legend = F) +
+      theme(axis.text.x = element_text(angle = 90)) + 
+      scale_y_continuous(name = "Weighted Context Score") + 
+      scale_x_discrete(name = NULL)
+
+#Distribution of LFC of expression of gene targets of above miRNAs
+ggplot(interesting_genes_down, aes(x = miRNA, y = micro_LFC)) +
+      geom_boxplot(outlier.shape = NA) +
+      geom_jitter(data = interesting_genes_down,  
+                  aes(x = miRNA, y = micro_LFC),
+                  colour = "deepskyblue",
+                  show.legend = F) + 
+      theme(axis.text.x = element_text(angle = 90)) + 
+      scale_y_continuous(name = "Log2FoldChange in Gene Target Expression") + 
+      scale_x_discrete(name = NULL)
+
+
+ggplot(interesting_genes_down, 
+       aes(x = Weighted_Context_Score, y = micro_LFC, color = Gene_Symbol)) + 
+  geom_point() + 
+  scale_color_manual(name = "Gene Symbol", values = rainbow(length(unique(interesting_genes_down$Gene_Symbol)))) + 
+  xlab("Weighted Context Score") + 
+  ylab("Log2FoldChange")
+  
+ggplot(interesting_genes_down,
+       aes(x = Weighted_Context_Score, y = micro_LFC, color = GO_description)) + 
+  geom_point() + 
+  xlab("Weighted Context Score") + 
+  ylab("Log2FoldChange") 
+
+
 
 ```
 
