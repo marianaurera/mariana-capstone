@@ -42,16 +42,40 @@ samtools flagstat test_sorted.bam
 
 ```
 
+## Loading libraries
+```{r}
+
+## loading in libraries
+library(biomaRt)
+library(GenomicFeatures) #For genome annotations, GTF files
+library(ggpubr)
+library(DESeq2)
+library(ggplot2)
+library(scales)
+library(EnhancedVolcano)
+library(pheatmap)
+library("grid")
+# library("gridExtra")
+library(cluster)
+library(miRBaseConverter)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(tidyr)
+library(openxlsx)
+
+
+
+
+
+```
+
 
 ## General QC
 
 ```{r}
 
 
-## loading in libraries
-library(biomaRt)
-library(GenomicFeatures) #For genome annotations, GTF files
-library(ggpubr)
+
 
 
 experimental.metadata = data.frame(samplename = c("RXF393_1",
@@ -73,10 +97,8 @@ experimental.metadata = data.frame(samplename = c("RXF393_1",
 experimental.metadata$condition = factor(experimental.metadata$condition,
                              levels=c("KNC", "KC", "LNC", "LC"))
 experimental.md.kidney = experimental.metadata[c(1:4),]
-# experimental.md.kidney$condition = factor(experimental.md.kidney$condition,
-#                              levels=c("KC", "KNC"))
 experimental.md.kidney$condition = factor(experimental.md.kidney$condition,
-                             levels=c("KNC", "KC"))
+                             levels=c("KNC", "KC")) # KC / KNC
 # KC: Kidney Cachectic; KNC: Kidney Non-cachectic; LNC: Lung Non-cachectic; LC: Lung cachectic
 
 
@@ -134,51 +156,50 @@ summary(colSums(kidney_read_counts))
 # condition because they have a lesser read depth compared to KC condition. 
 summary(kidney_read_counts)
 
-# # miRNAs detected 
-# # Detection
-# sample_detect <- c(sum(sapply(kidney_read_counts[,c(1)], function(row) all(row > 0 ))), #RXF 1 -> 506,
-#                     sum(sapply(kidney_read_counts[,c(2)], function(row) all(row > 0 ))), #RXF 2 -> 526
-#                     sum(sapply(kidney_read_counts[,c(3)], function(row) all(row > 0 ))), #SKR 1 -> 284
-#                     sum(sapply(kidney_read_counts[,c(4)], function(row) all(row > 0 ))) #SKR 2 -> 303
-#                     )
-# barplot(sample_detect, 
-#         names = experimental.md.kidney$samplename,
-#         xlab = "Sample Name",
-#         ylab = "Number of miRNAs",
-#         ylim = c(0, 600),
-#         col = c("#BC4B51", "#BC4B51", "#133C55", "#133C55"))
-# legend(x = "topright", y = NULL, legend = c("Cachectic", "Control"), col = c("#BC4B51", "#133C55"),
-#        pch = 15) 
-# 
-# 
-# condition_detect <- c(sum(apply(kidney_read_counts[,c(1,2)], 1, function(row) all(row > 0 ))), #RXF
-#                       sum(apply(kidney_read_counts[,c(3,4)], 1, function(row) all(row > 0 ))) #SKR
-#                       )
-# barplot(condition_detect, 
-#         names = c("Cachectic", "Non-Cachectic"),
-#         # main = "Number of miRNAs detected in all samples per condition (Kidney Model)",
-#         xlab = "Condition",
-#         ylab = "Number of miRNAs detected in all samples",
-#         ylim = c(0, 450),
-#         col = c("#BC4B51", "#133C55"))
-# 
-# 
-# condition_detect_any <- c(sum(apply(kidney_read_counts[,c(1,2)], 1, function(row) any(row > 0 ))), #RXF --> 624
-#                       sum(apply(kidney_read_counts[,c(3,4)], 1, function(row) any(row > 0 ))) #SKR
-#                       )
-# barplot(condition_detect_any, 
-#         names = c("Cachectic", "Non-Cachectic"),
-#         # main = "Number of miRNAs detected in at least 1 sample per condition (Kidney Model)",
-#         xlab = "Condition",
-#         ylab = "Number of miRNAs in at least 1 sample",
-#         ylim = c(0, 700),
-#          col = c("#BC4B51", "#133C55"))
+# miRNAs detected
+# Detection
+sample_detect <- c(sum(sapply(kidney_read_counts[,c(1)], function(row) all(row > 0 ))), #RXF 1 -> 506,
+                    sum(sapply(kidney_read_counts[,c(2)], function(row) all(row > 0 ))), #RXF 2 -> 526
+                    sum(sapply(kidney_read_counts[,c(3)], function(row) all(row > 0 ))), #SKR 1 -> 284
+                    sum(sapply(kidney_read_counts[,c(4)], function(row) all(row > 0 ))) #SKR 2 -> 303
+                    )
+barplot(sample_detect,
+        names = experimental.md.kidney$samplename,
+        xlab = "Sample Name",
+        ylab = "Number of miRNAs",
+        ylim = c(0, 600),
+        col = c("#BC4B51", "#BC4B51", "#133C55", "#133C55"))
+legend(x = "topright", y = NULL, legend = c("Cachectic", "Control"), col = c("#BC4B51", "#133C55"),
+       pch = 15)
+
+
+condition_detect <- c(sum(apply(kidney_read_counts[,c(1,2)], 1, function(row) all(row > 0 ))), #RXF
+                      sum(apply(kidney_read_counts[,c(3,4)], 1, function(row) all(row > 0 ))) #SKR
+                      )
+barplot(condition_detect,
+        names = c("Cachectic", "Non-Cachectic"),
+        # main = "Number of miRNAs detected in all samples per condition (Kidney Model)",
+        xlab = "Condition",
+        ylab = "Number of miRNAs detected in all samples",
+        ylim = c(0, 450),
+        col = c("#BC4B51", "#133C55"))
+
+
+condition_detect_any <- c(sum(apply(kidney_read_counts[,c(1,2)], 1, function(row) any(row > 0 ))), #RXF --> 624
+                      sum(apply(kidney_read_counts[,c(3,4)], 1, function(row) any(row > 0 ))) #SKR
+                      )
+barplot(condition_detect_any,
+        names = c("Cachectic", "Non-Cachectic"),
+        # main = "Number of miRNAs detected in at least 1 sample per condition (Kidney Model)",
+        xlab = "Condition",
+        ylab = "Number of miRNAs in at least 1 sample",
+        ylim = c(0, 700),
+         col = c("#BC4B51", "#133C55"))
 
 
 
 
 ## PCA
-library(DESeq2)
 
 dds = DESeqDataSetFromMatrix(kidney_read_counts, experimental.md.kidney, ~ condition)
 dds <- estimateSizeFactors(dds)   #identifying housekeeping genes: normalizing for library composition, seq depth
@@ -259,7 +280,6 @@ barplot(mirna_detected_samples$detected_mirnas,
 
 ```{r eval = FALSE}
 # miRNA-seq FIGURES QC section
-library(ggplot2)
 
 # Detection
 barplot(mirna_detected_samples$detected_mirnas, 
@@ -311,8 +331,7 @@ MAplots_replicates(dds_normalized$SKRC39_1, dds_normalized$SKRC39_2, "SKRC39_1",
 #### Differential Expression
 
 ```{r}
-library(scales)
-library(EnhancedVolcano)
+
 
 
 ## Overall
@@ -395,11 +414,7 @@ sum(de_mirna$log2FoldChange > log2(2))# 101, number of miRNA upregulated in Cach
 #### Heatmap
 
 ```{r}
-## loading in libraries
-library(pheatmap)
-library("grid")
-# library("gridExtra")
-library(cluster)
+
 
 significant_results = results.lrt[!is.na(results.lrt$padj) & results.lrt$padj<0.05, ]
 sum(significant_results$log2FoldChange > 0) # 101 upregulated (NOT 34)
@@ -467,7 +482,6 @@ heat.map <- pheatmap(results.coef, cluster_col=T, breaks=breaksList,
 ts = read.delim("Predicted_Targets_Context_Scores.default_predictions.txt")
 ts_humans = ts[ts$Gene.Tax.ID == "9606", c(1,2,3,5,11)]
 
-library(miRBaseConverter)
 
 de_mirna_df = as.data.frame(de_mirna)
 de_mirna_df[,c(7,8)] = miRNA_AccessionToName(rownames(de_mirna_df))
@@ -570,13 +584,6 @@ ggplot(de_mirna_targets_filtered,
 ```{r}
 
 
-## loading in libraries
-library("grid")
-# library("gridExtra")
-library(cluster)
-library(clusterProfiler)
-library(org.Hs.eg.db)
-library(biomaRt)
 
 
 # getting all expressed genes targetted by a miRNA as predicted by targetscan
@@ -609,7 +616,6 @@ length(unique(expressed_genes_w_mirna$Gene.Symbol)) #8003 genes expressed (per m
 #### Clustering & Visualization & Enrichment Analysis
 
 ```{r}
-library(tidyr)
 
 
 
@@ -836,7 +842,6 @@ length(unique(de_mirna_targets_filtered_export$miRNA[de_mirna_targets_filtered_e
 length(unique(de_mirna_targets_filtered_export$Gene_Symbol[de_mirna_targets_filtered_export$miRNA_L2FC < 0 &
                                           de_mirna_targets_filtered_export$gene_LFC > 0])) # 163 upreguated genes targetted by downregulated miRNAs
 
-library(openxlsx)
 
 # export_datasets <- list("DE_miRNA" = de_mirna_df_export, 
 #                          "DE_Genes" = microarray_genes_export,
@@ -862,7 +867,6 @@ write.xlsx(export_go_datasets, file = "kidney_target_gene_GO_results.xlsx")
 
 
 ```{r eval = False}
-library(ggplot2)
 
 
 ## UPREGULATED figures
@@ -957,6 +961,18 @@ ggplot(interesting_genes_up,
   ylab("Log2FoldChange") 
 
 
+res = read.xlsx("/Users/marianaurera/OneDrive - National University of Singapore/Yale-NUS/Capstone/Results/kidney_results.xlsx", sheet = 3
+)
+res_score_table <- as.data.frame(table(res$Overall.Score))
+ggplot(data = res_score_table, 
+       aes(x = Var1, y = Freq)) +
+  geom_bar(stat = "identity", fill = "darkred") +
+  geom_text(aes(label=Freq), vjust=1.6, color="white", size=5) +
+  xlab("Score") + 
+  ylab("Frequency") +
+  ylim(0,22.5)
+
+
 
 
 
@@ -996,7 +1012,7 @@ mirna_lfc_down_plot <- ggplot(de_mirna_down_targets_filtered,
 
 context_down_plot <- ggplot(de_mirna_down_targets_filtered,
        aes(x = "", y = Weighted_Context_Score)) + 
-  geom_boxplot(color = "darkred")  + 
+  geom_boxplot(color = "navyblue")  + 
   ylab("Weighted Context Score of Target Genes") + 
   theme(
     axis.title.x = element_blank(),
@@ -1183,6 +1199,79 @@ As of Sept. 22 ==== to do:
 # - take a look at context score: what it is? whats a reliable cutoff? —> how does that affect the number of target genes predicted —> are they enriched for anything
 # [DONE] microarray analysis: see what happens when remove RXF 2, probes not matched to a gene, remove redundant probes
 
+
+## TCGA ANALYSIS
+
+# Intersting miRNAs
+- 22 miRNAs whose target genes are associated with Cartilage Development in Endochondral Bone Morphogenesis and Myoblast Proliferation
+```{r}
+library(dplyr)
+library(ggplot2)
+library(openxlsx)
+tcga_interesting_miRNAs = read.csv("tcga_interesting_miRNAs_complete.csv")
+head(tcga_interesting_miRNAs)
+tcga_interesting_miRNAs = tcga_interesting_miRNAs[, -1]
+tcga_interesting_miRNAs[tcga_interesting_miRNAs == "'--"] <- NA
+
+
+interesting_miRNAs = unique(tcga_interesting_miRNAs$miRNA_ID) # 18 miRNAs
+# https://gdc.cancer.gov/resources-tcga-users/tcga-code-tables/tcga-study-abbreviations
+# https://www.ncbi.nlm.nih.gov/projects/gap/cgi-bin/study.cgi?study_id=phs000218.v24.p8
+
+
+# removing TARGET-AML because it has an analogous TCGA-LAML
+tcga_interesting_miRNAs = tcga_interesting_miRNAs[!(tcga_interesting_miRNAs$project_id %in% grep("TARGET", unique(tcga_interesting_miRNAs$project_id), value = T)),]
+unique(tcga_interesting_miRNAs$abbr_project_id) # 33 studies
+
+# abbreviating project IDs 
+tcga_interesting_miRNAs$abbr_project_id <- unlist(lapply(tcga_interesting_miRNAs$project_id, function(x){strsplit(x, split = "-")[[1]][2]}))
+
+# clinical data
+clinical_data = read.delim("/Users/marianaurera/OneDrive - National University of Singapore/Yale-NUS/Capstone/Capstone/mariana-capstone/tcga/clinical.cases_selection.2024-01-21 2/clinical.tsv",sep="\t")
+clinical_data[clinical_data == "'--"] <- NA
+# clean_clinical <- clinical_data %>% select_if(~ !all(is.na(.)))
+# write.csv(clean_clinical, "/Users/marianaurera/OneDrive - National University of Singapore/Yale-NUS/Capstone/Capstone/mariana-capstone/tcga/clean_clinical_data.csv")
+
+cachexia_risk_list = read.xlsx("cachexia_risk.xlsx")
+
+tcga_interesting_miRNAs = merge(tcga_interesting_miRNAs, 
+                                cachexia_risk_list[,c(1,3)],
+                                by.x = "abbr_project_id",
+                                by.y = "Code",
+                                all.x = TRUE)
+
+tcga_interesting_miRNAs$Cachexia_Risk <- factor(tcga_interesting_miRNAs$Cachexia_Risk,
+                                            levels=unique(tcga_interesting_miRNAs$Cachexia_Risk))
+tcga_interesting_miRNAs$abbr_project_id <- factor(tcga_interesting_miRNAs$abbr_project_id, levels = 
+                                             unique(tcga_interesting_miRNAs$abbr_project_id[order(tcga_interesting_miRNAs$Cachexia_Risk)]))
+
+# making plots - Figure 4 TCGA
+
+for (i in seq(length(interesting_miRNAs))){
+ggplot(data = tcga_interesting_miRNAs[tcga_interesting_miRNAs$miRNA_ID == interesting_miRNAs[i],],
+       aes(x = abbr_project_id, 
+           y = reads_per_million_miRNA_mapped, colour = Cachexia_Risk)) +
+  geom_boxplot() +
+  ggtitle(interesting_miRNAs[i]) + 
+    ylab("miRNA Reads per Million") + 
+  xlab("Project ID") + 
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        legend.position = c(0.95, 0.95),
+    legend.justification = c("right", "top"))
+  # ggsave(path = "/Users/marianaurera/OneDrive - National University of Singapore/Yale-NUS/Capstone/Figures/Figure 4 (TCGA)/",
+  #         filename = paste(interesting_miRNAs[i], ".png", sep = ""))
+}
+
+ggplot(data = tcga_interesting_miRNAs[tcga_interesting_miRNAs$abbr_project_id == "KIRC",],
+       aes(x = miRNA_ID, 
+           y = reads_per_million_miRNA_mapped)) +
+  geom_boxplot() +
+  ggtitle("Project ID: KIRC (Kidney Renal Cell Carcinoma)") + 
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) + 
+  ylab("miRNA Reads per Million") + 
+  xlab("miRNA ID")
+
+```
 
 
 
