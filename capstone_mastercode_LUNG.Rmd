@@ -46,6 +46,18 @@ featureCounts -t miRNA -g ID -F GFF -a /home/marianaurera/capstone/hsa.gff3 -T 4
 # load libraries
 
 library(biomaRt)
+library(GenomicFeatures)
+library(GenomicRanges)
+library("ape")
+library(DESeq2)
+library(ggplot2)
+library(scales)
+library(EnhancedVolcano)
+library(pheatmap)
+library("grid")
+# library("gridExtra")
+library(cluster)
+
 
 
 ```
@@ -54,20 +66,74 @@ library(biomaRt)
 
 ```{r load read counts}
 
+#cachectic
 NL20 <- read.csv("lung_NL20_counts.txt", sep="\t", comment.char="#", row.names=1)
 NL20_counts <- NL20[, c(6:7)]
 colnames(NL20_counts) <- c("NL20_1", "NL20_2")
 
+# non-cachectic
 LL2 <- read.csv("lung_LL2_counts.txt", sep="\t", comment.char="#", row.names=1)
 LL2_counts <- LL2[, c(6:7)]
 colnames(LL2_counts) <- c("LL2_1", "LL2_2")
 
+
 ```
+
+
+## Figures
+```{r}
+
+df_read_sums <- data.frame("LL2_1" = colSums(LL2_counts)[1],
+                           "LL2_2" = colSums(LL2_counts)[2],
+                           "NL20_1" = colSums(NL20_counts)[1],
+                           "NL20_2" = colSums(NL20_counts)[2])
+
+barplot(c(colSums(LL2_counts), colSums(NL20_counts))/1000000, 
+        names = colnames(df_read_sums),
+        xlab = "Sample Name",
+        ylab = "Number of Aligned Reads (10^6)",
+        ylim = c(0, 0.2),
+        col = c("#BC4B51", "#BC4B51", "#133C55", "#133C55"))
+legend(x = "topright", y = NULL, legend = c("Cachectic", "Control"), col = c("#BC4B51", "#133C55"),
+       pch = 15) 
+
+```
+
 
 
 ## Getting conserved miRNAs between mice and humans
 
+# miRBase
+
 ```{r}
+
+# non-cachectic
+NL20_counts$name <- rownames(NL20_counts)
+NL20_counts$common_names <- rep(NA, nrow(NL20_counts))
+for (i in seq(length(NL20_counts$name))){
+  x <- strsplit(NL20_counts$name[i], split = "")[[1]]
+  NL20_counts$common_names[i] <- paste(x[5:length(x)], sep = "", collapse = "")
+}
+
+# cachectic
+LL2_counts$name <- rownames(LL2_counts)
+LL2_counts$common_names <- rep(NA, nrow(LL2_counts))
+for (i in seq(length(LL2_counts$name))){
+  x <- strsplit(LL2_counts$name[i], split = "")[[1]]
+  LL2_counts$common_names[i] <- paste(x[5:length(x)], sep = "", collapse = "")
+}
+
+lung_counts <- merge(NL20_counts, LL2_counts, by = "common_names")
+colnames(lung_counts) <- c("common_name", "NL20_1", "NL20_2",
+                           "human_name", "LL2_1", "LL2_2", "mouse_name")
+lung_counts <- lung_counts[, c(1,4,7,5,6,2,3)]
+
+```
+
+
+# biomart
+
+```{r eval = FALSE}
 # human_ensembl <- useEnsembl(biomart = "genes", dataset = "hsapiens_gene_ensembl")
 # human_ensembl = useEnsembl(biomart="ENSEMBL_MART_ENSEMBL",host="https://www.ensembl.org", dataset="hsapiens_gene_ensembl", version="108")
 mouse_ensembl = useEnsembl(biomart="ENSEMBL_MART_ENSEMBL",mirror="asia", dataset="mmusculus_gene_ensembl", version="109")
@@ -77,6 +143,8 @@ human_attributes <- listAttributes(human_ensembl)
 mouse_attributes <- listAttributes(mouse_ensembl)
 
 
+# test
+ts_conserve_mouse = ts_conserve[ts_conserve$Species.ID == 10090,]
 mouse_query_gen <- getBM(attributes = c("ensembl_gene_id", 
                                     "mgi_symbol", 
                                     "description", 
@@ -85,10 +153,10 @@ mouse_query_gen <- getBM(attributes = c("ensembl_gene_id",
                                     "mirbase_accession"
                                     ),
       filters = "mirbase_id",
-      values = names(LL2_counts),
+      values = ts_conserve_mouse$miR.Family,
       mart = mouse_ensembl)
 
-human_query_mir <- getBM(attributes = c("ensembl_gene_id", 
+mouse_query_mir <- getBM(attributes = c("ensembl_gene_id", 
                                     "hsapiens_homolog_ensembl_gene", #Mouse gene stable ID
                                     "hsapiens_homolog_associated_gene_name", #Mouse gene name
                                     "hsapiens_homolog_goc_score", # Mouse Gene-order conservation score
@@ -128,14 +196,266 @@ human_query_mir <- getBM(attributes = c("ensembl_gene_id",
 
 
 
+ts_conserve = read.delim("Predicted_Targets_Info.default_predictions.txt")
+# human: 9606, mouse: 10090
 ```
 
-## Including Plots
+## Quality Control
 
-You can also embed plots, for example:
+# PCA, MA, Detection
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+
+
+```{r}
+
+experimental.md.lung = data.frame(samplename = c("LL2_1",
+                                                  "LL2_2",
+                                                 "NL20_1",
+                                                  "NL20_2"),
+                                   condition = c("LC",
+                                                 "LC",
+                                                 "LNC",
+                                                 "LNC"))
+
+experimental.md.lung$condition = factor(experimental.md.lung$condition,
+                             levels=c("LNC", "LC")) # LC / LNC
+
+
+## removing the genes not detected
+dim(lung_counts) # 513 rows
+lung_counts = lung_counts[apply(lung_counts[4:7], 1, function(row) any(row > 0 )),]
+dim(lung_counts) # filtered reads; 333 rows
+summary(colSums(lung_counts[4:7])) # summary of reads per sample
+
+
+## Frequency distribution: This should be uniform, but it isn't
+colSums(lung_counts[4:7]) # total reads per sample
+barplot(colSums(lung_counts[4:7]), ylab="Number aligned reads", las=2, cex.names=0.8)
+summary(colSums(lung_counts[4:7]))
+summary(lung_counts[4:7])
+
+
+lung_read_counts <- lung_counts[, c(4:7)]
+rownames(lung_read_counts) <- lung_counts$common_name
+
+# PCA
+dds = DESeqDataSetFromMatrix(lung_read_counts, experimental.md.lung, ~ condition)
+dds <- estimateSizeFactors(dds)   #identifying housekeeping genes: normalizing for library composition, seq depth
+dds <- estimateDispersions(dds)   #estimative variances per gene
+
+
+rld <- rlog(dds) #log data
+ntop = 300 # 500
+rv <- rowVars(assay(rld))
+select <- order(rv, decreasing = TRUE)[1:ntop]
+pca = prcomp(t(assay(rld)[select,])) # full-on pca: gets % variation per PC
+percentVar <- pca$sdev^2/sum(pca$sdev^2)
+barplot(percentVar, names=1:length(percentVar), xlab="PC", ylab="% variation",  las=2, cex.names=0.8, ylim=c(0,0.9)) #% of variation accounted per PC
+
+#PC1: INTERPRETATION: This axis on the variation accounts for the condition difference.
+plotPCA(rld, intgroup = c( "condition"))  #color by condition, put in a plot
+data = plotPCA(rld, intgroup = c( "condition"), returnData=TRUE) 
+
+
+#PC2: INTERPRETATION: difference in reads between samples within conditions.
+plotPCA(rld, intgroup = c("samplename"))
+plot(pca$x[,"PC2"], pca$x[,"PC3"], xlab="PC2", ylab="PC3", col= factor(levels(factor(experimental.md.lung$samplename))), pch=19)
+legend("topleft",
+       legend = levels(factor(experimental.md.lung$samplename)),
+       col = factor(levels(factor(experimental.md.lung$samplename))),
+       pch = 19)
+
+
+## plotting replicates against each other in MAplot (QC of replicates)
+# Checking consistency of replicates within conditions. 
+dds_normalized <- as.data.frame(counts(dds, normalized = TRUE)) 
+
+MAplots_replicates <- function(data1, data2, replicate_name1, replicate_name2) {
+      if (length(data1) != length(data2)) {
+        return(NA)
+      } else {
+      r <- data1
+      g <- data2
+      m <- log2(r/g) # formula, y-axis
+      a <- 0.5*(log2(r*g))# formula, x-axis
+      plot(a,m, col = "navyblue", pch = 20,
+           main = paste(replicate_name1, "vs.", replicate_name2))
+      abline(h = 0)
+      }
+}
+
+par(mfrow=c(2,1))
+MAplots_replicates(dds_normalized$LL2_1, dds_normalized$LL2_2, "LL2_1", "LL2_2")
+MAplots_replicates(dds_normalized$NL20_1, dds_normalized$NL20_2, "NL20_1", "NL20_2")
+par(mfrow=c(1,1))
+
+# Number of detected miRNAs
+sum(apply(dds_normalized, 1, function(x){ mean(x) >= 1 })) #258 unique miRNAs
+
+# how many miRNAs detected per sample
+mirna_detected_samples <- data.frame(samplenames = experimental.md.lung$samplename,
+                                     detected_mirnas = rep(NA,
+                                                           length(experimental.md.lung$samplename)))
+for (i in colnames(dds_normalized)){
+  mirna_detected_samples$detected_mirnas[mirna_detected_samples$samplenames == i] = sum(apply(dds_normalized[i], 1, function(x){ mean(x) >= 1 }))
+}
+barplot(mirna_detected_samples$detected_mirnas,
+        names.arg = mirna_detected_samples$samplenames,
+        main = "Number of miRNAs detected in each sample",
+        ylab = "Number of miRNAs detected",
+        xlab = "Samples",
+        ylim = c(0, 250))
+
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+#### Differential Expression
+
+```{r}
+
+## Overall
+dds = nbinomLRT(dds, full= ~1 + condition, reduced = ~1) #Likelihood ratio test
+results.lrt <- results(dds)
+results.lrt #padj: p-value corrected for multiple testing --> False Discovery Rate (FDR)
+sum(results.lrt$padj < 0.05, na.rm = T) #61 significantly different in expression between conditions
+# FDR cut-off is 5% (alpha = 0.05). Differential expression calculation is limited in that 
+# about 5% of significantly differently expressed genes are false. 
+
+## Comparing Cachectic vs. Non-cachectic (in Kidney model)
+LC_vs_LNC = results(dds, contrast=c("condition", "LC", "LNC"), independentFiltering = TRUE, alpha=0.05, test="Wald")
+LC_vs_LNC <- lfcShrink(dds=dds, contrast=c("condition", "LC", "LNC"), type="ashr") #ratio: LC/LNC
+hist(LC_vs_LNC$pvalue, xlab="pvalue", main="Cachectic (lung) vs Control (lung)") 
+#This graph hows that the distribution of p-values is bimodal which is likely due two miRNA-seq considering low reads as well. 
+#low read thus needs to be removed.
+
+
+# recalculating everything
+dds = DESeqDataSetFromMatrix(lung_read_counts, experimental.md.lung, ~ condition)
+dds <- estimateSizeFactors(dds) # normalization
+dds <- estimateDispersions(dds)
+
+## filtering out low reads to fix the bimodal p-value histogram shown above
+filter = apply(counts(dds, normalized=TRUE), 1, function(x){ mean(x) >= 5 })
+
+
+dds = dds[filter, ]
+# normalize
+dds <- estimateSizeFactors(dds) 
+dds <- estimateDispersions(dds)
+
+rld <- rlog(dds) #log data
+
+dds = nbinomLRT(dds, full= ~1 + condition, reduced = ~ 1 )
+results.lrt = results(dds) #contrast = c("condition", "LC", "LNC")
+results.lrt
+
+sum(results.lrt$padj < 0.05, na.rm = T) #62 significantly different in expression between conditions
+sum(results.lrt$padj < 0.05 & results.lrt$log2FoldChange > 0, na.rm = T) # 32 upregulated miRNAs
+sum(results.lrt$padj < 0.05 & results.lrt$log2FoldChange < 0, na.rm = T) # 30 downregulated miRNAs 
+
+## Comparing Cachectic vs. Non-cachectic (in lung model)
+LC_vs_LNC = results(dds, contrast=c("condition", "LC", "LNC"), independentFiltering = TRUE, alpha=0.05, test="Wald")
+LC_vs_LNC <- lfcShrink(dds=dds, contrast=c("condition", "LC", "LNC"), type="ashr") #ratio: LC/LNC
+hist(LC_vs_LNC$pvalue, xlab="pvalue", main="Cachectic (lung) vs Control (lung)") 
+sum(LC_vs_LNC$padj < 0.05 & LC_vs_LNC$log2FoldChange > 0, na.rm = T) # 32 upregulated
+sum(LC_vs_LNC$padj < 0.05 & LC_vs_LNC$log2FoldChange < 0, na.rm = T) # 30 downregulated
+
+#Volcano plot
+plot(LC_vs_LNC$log2FoldChange, 
+     -log10(LC_vs_LNC$padj), pch=19, 
+     col = alpha("grey", 0.8), 
+     main = "Lung Cachectic vs. Lung Non-cachectic",
+     ylab = "-Log10 p-value",
+     xlab = "Log2 Fold Change")
+
+plotMA(LC_vs_LNC, ylim=c(-10,10),  main = "LC vs. LNC")
+
+
+# significantly different genes
+de_mirna = results.lrt[!is.na(results.lrt$padj) & results.lrt$padj<0.05, ]
+de_mirna
+
+sum(de_mirna$log2FoldChange > 0) #32 upregulated
+sum(de_mirna$log2FoldChange > log2(1.5))# 32, number of miRNA upregulated in Cachexia 
+sum(de_mirna$log2FoldChange > log2(2))# 32, number of miRNA upregulated in Cachexia 
+
+
+
+```
+
+
+#### Heatmap
+
+```{r}
+
+significant_results = results.lrt[!is.na(results.lrt$padj) & results.lrt$padj<0.05, ]
+sum(significant_results$log2FoldChange > 0) # 32 upregulated
+sum(significant_results$log2FoldChange < 0) # 30 downregulated 
+rld_signif = assay(rld)[rownames(significant_results),]
+rld_z = t(apply(rld_signif, 1, function(x){ (x - mean(x)) / sd(x)})) # converting to zscore --> to scale
+
+k = 2
+results.coef.kmeans =  kmeans(rld_z, k, nstart=10, iter.max=50)
+table(results.coef.kmeans$cluster) # how many genes fit per cluster
+
+## heatmap by cluster
+results.coef = rld_z[order(results.coef.kmeans$cluster),] # gets rid of scale, allows us to focus on 
+#only the pattern of expression changes
+indicator = results.coef.kmeans$cluster[order(results.coef.kmeans$cluster)]
+color = c(colorRampPalette(c("mediumblue", "white"))(14), colorRampPalette(c("white", "firebrick2"))(14))
+breaksList = seq(-3, 3, length.out = 29)
+heat.map <- pheatmap(results.coef, cluster_col=T, breaks=breaksList, 
+                     cluster_rows=F, show_rownames=F,color = color,
+                     fontsize_row = 3, legend=TRUE,border_color = NA)
+grid.newpage()
+grid.draw(heat.map$gtable)
+
+
+```
+
+
+### Target Scan - linking gene targets and miRNAs
+```{r}
+ts = read.delim("Predicted_Targets_Context_Scores.default_predictions.txt")
+ts_humans = ts[ts$Gene.Tax.ID == "9606", c(1,2,3,5,11)]
+
+de_mirna_targets = as.data.frame(de_mirna)
+de_mirna_targets$human_name = rep(NA, nrow(de_mirna_targets))
+
+for (i in seq(nrow(de_mirna_targets))) {
+  de_mirna_targets$human_name[i] <- lung_counts$human_name[lung_counts$common_name == rownames(de_mirna_targets)[i]]
+}
+
+de_mirna_targets = unique(merge(de_mirna_targets, ts_humans, by.x = "human_name",
+                                by.y = "miRNA")) # 52 miRNAs
+length(unique(de_mirna_targets$human_name)) # 50 miRNAs from 62
+
+de_mirna_up_targets = de_mirna_targets[de_mirna_targets$log2FoldChange > 0, ] # just getting upregulated miRNAs (their genes go down) --> 40 upregulated miRNAs with gene targets
+de_mirna_down_targets = de_mirna_targets[de_mirna_targets$log2FoldChange < 0, ] # just getting downregulated miRNAs (their genes go up)  --> 12 downregulated miRNAs
+
+nrow(de_mirna_up_targets) + nrow(de_mirna_down_targets) == nrow(de_mirna_targets)
+
+max(table(de_mirna_up_targets$Gene.ID))
+length(unique(de_mirna_up_targets$Gene.Symbol)) # 8221 gene targets based on symbol, 8223 targets based on geneID
+length(unique(de_mirna_down_targets$Gene.Symbol)) # 3862 gene targets based on symbol, 3863 targets based on geneID
+
+hist(de_mirna_up_targets$weighted.context...score)
+
+# Identifying a cut-off for context scores
+context_score_cutoff_up = c()
+for (i in seq(0, -1, -0.1)) {
+  context_score_cutoff_up = c(context_score_cutoff_up, length(unique(de_mirna_up_targets$Gene.ID[de_mirna_up_targets$weighted.context...score < i])))
+}
+
+plot(seq(0, -1, -0.1), context_score_cutoff_up)
+
+
+
+```
+
+
+# Notes
+
+Dec 6 Questions for prof:
+-- What's "ntop" in pca? It was previously 500 (copied from kidney and class code)
+-- What are the "let-" miRNAs? Do we keep them?
